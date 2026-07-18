@@ -23,6 +23,7 @@ import { useTranslate } from 'canva-editor/contexts/TranslationContext';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 import { dataMapping, pack } from 'canva-editor/utils/minifier';
+import DataMappingModal from './DataMappingModal';
 
 const Button = styled('button')`
   display: flex;
@@ -88,6 +89,7 @@ const HeaderLayout: ForwardRefRenderFunction<
   const menuRef = useRef<HTMLDivElement>(null);
   const [currentTemplateId, setCurrentTemplateId] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [showDataMapping, setShowDataMapping] = useState(false);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -150,6 +152,7 @@ const HeaderLayout: ForwardRefRenderFunction<
   };
 
   return (
+    <>
     <div
       ref={ref}
       css={{
@@ -288,6 +291,30 @@ const HeaderLayout: ForwardRefRenderFunction<
                 </div>
               </>
             )}
+            {currentTemplateId && (
+              <>
+                <Button onClick={() => setShowDataMapping(true)}>
+                  <svg
+                    css={{ width: 18, height: 18, flexShrink: 0 }}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M3 3h18v4H3z" />
+                    <path d="M3 10h18v4H3z" />
+                    <path d="M3 17h18v4H3z" />
+                    <path d="M8 5h8M8 12h8M8 19h8" />
+                  </svg>
+                  <span css={{ marginRight: 4, marginLeft: 6 }}>Data Mapping</span>
+                </Button>
+                <div css={{ margin: '0 8px' }}>
+                  <SettingDivider background="hsla(0,0%,100%,.15)" />
+                </div>
+              </>
+            )}
             <Button
               onClick={() => {
                 actions.fireDownloadPNGCmd(0);
@@ -335,6 +362,13 @@ const HeaderLayout: ForwardRefRenderFunction<
         )}
       </div>
     </div>
+    {showDataMapping && currentTemplateId && (
+      <DataMappingModal
+        templateId={currentTemplateId}
+        onClose={() => setShowDataMapping(false)}
+      />
+    )}
+    </>
   );
 };
 

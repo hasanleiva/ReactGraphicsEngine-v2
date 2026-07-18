@@ -1,81 +1,81 @@
 [
   {
-    "id": "option-1",
+    "id": "16",
     "text": "Andijon",
     "logo": "/dropdown-data/logos/230px/andijon.png"
   },
   {
-    "id": "option-2",
+    "id": "15",
     "text": "Bunyodkor",
     "logo": "/dropdown-data/logos/230px/bunyodkor.png"
   },
   {
-    "id": "option-3",
+    "id": "8",
     "text": "Buxoro",
     "logo": "/dropdown-data/logos/230px/buxoro.png"
   },
   {
-    "id": "option-4",
+    "id": "17",
     "text": "Dinamo",
     "logo": "/dropdown-data/logos/230px/dinamo.png"
   },
   {
-    "id": "option-5",
+    "id": "3",
     "text": "Lokomotiv",
     "logo": "/dropdown-data/logos/230px/lokomotiv.png"
   },
   {
-    "id": "option-6",
+    "id": "18",
     "text": "Mash'al",
     "logo": "/dropdown-data/logos/230px/mashal.png"
   },
   {
-    "id": "option-7",
+    "id": "4",
     "text": "Nasaf",
     "logo": "/dropdown-data/logos/230px/nasaf.png"
   },
   {
-    "id": "option-8",
+    "id": "5",
     "text": "Navbahor",
     "logo": "/dropdown-data/logos/230px/navbahor.png"
   },
   {
-    "id": "option-9",
+    "id": "7",
     "text": "Neftchi",
     "logo": "/dropdown-data/logos/230px/neftchi.png"
   },
   {
-    "id": "option-10",
+    "id": "6",
     "text": "OKMK",
     "logo": "/dropdown-data/logos/230px/okmk.png"
   },
   {
-    "id": "option-11",
+    "id": "2",
     "text": "Paxtakor",
     "logo": "/dropdown-data/logos/230px/paxtakor.png"
   },
   {
-    "id": "option-12",
+    "id": "14",
     "text": "Qizilqum",
     "logo": "/dropdown-data/logos/230px/qizilqum.png"
   },
   {
-    "id": "option-13",
+    "id": "19",
     "text": "Qo'qon-1912",
     "logo": "/dropdown-data/logos/230px/qoqon1912.png"
   },
   {
-    "id": "option-14",
+    "id": "9",
     "text": "So'g'diyona",
     "logo": "/dropdown-data/logos/230px/sogdiyona.png"
   },
   {
-    "id": "option-15",
+    "id": "13",
     "text": "Surxon",
     "logo": "/dropdown-data/logos/230px/surxon.png"
   },
   {
-    "id": "option-16",
+    "id": "23",
     "text": "Xorazm",
     "logo": "/dropdown-data/logos/230px/xorazm.png"
   }

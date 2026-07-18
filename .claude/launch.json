@@ -12,7 +12,8 @@
       "name": "Vite Dev Server",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev:vite"],
-      "port": 5173
+      "port": 5173,
+      "autoPort": false
     }
   ]
 }

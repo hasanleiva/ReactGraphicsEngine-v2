@@ -10,6 +10,7 @@ const authRouter = require('./routes/auth');
 const imagesRouter = require('./routes/images');
 const templatesRouter = require('./routes/templates');
 const fontsRouter = require('./routes/fonts');
+const pflRouter = require('./routes/pfl');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -31,6 +32,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use('/api/auth', authRouter);
 app.use('/api/images', imagesRouter);
 app.use('/api/templates', templatesRouter);
+app.use('/api/pfl', pflRouter);
 
 // Generic R2-replacement route (mounted separately so it doesn't conflict)
 const { Router } = require('express');

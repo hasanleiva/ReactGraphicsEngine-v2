@@ -1,0 +1,72 @@
+[
+  {
+    "id": "option-1",
+    "text": "Aral",
+    "logo": "/dropdown-data/logos/proliga_fulltime/aral.png"
+  },
+  {
+    "id": "option-2",
+    "text": "BuxDU",
+    "logo": "/dropdown-data/logos/proliga_fulltime/buxdu.png"
+  },
+  {
+    "id": "option-3",
+    "text": "FarDU",
+    "logo": "/dropdown-data/logos/proliga_fulltime/fardu.png"
+  },
+  {
+    "id": "option-4",
+    "text": "Kattaqo'rg'on",
+    "logo": "/dropdown-data/logos/proliga_fulltime/kattakurgan.png"
+  },
+  {
+    "id": "option-5",
+    "text": "Lochin",
+    "logo": "/dropdown-data/logos/proliga_fulltime/lochin.png"
+  },
+  {
+    "id": "option-6",
+    "text": "Metallurg",
+    "logo": "/dropdown-data/logos/proliga_fulltime/metallurg.png"
+  },
+  {
+    "id": "option-7",
+    "text": "Olimpik Mobiuz",
+    "logo": "/dropdown-data/logos/proliga_fulltime/olympic.png"
+  },
+  {
+    "id": "option-8",
+    "text": "Paxtakor FJ",
+    "logo": "/dropdown-data/logos/proliga_fulltime/pakhtakorfj.png"
+  },
+  {
+    "id": "option-9",
+    "text": "QMU Jayxun",
+    "logo": "/dropdown-data/logos/proliga_fulltime/jayxun.png"
+  },
+  {
+    "id": "option-10",
+    "text": "Respublika FA",
+    "logo": "/dropdown-data/logos/proliga_fulltime/respublikafa.png"
+  },
+  {
+    "id": "option-11",
+    "text": "TerDU",
+    "logo": "/dropdown-data/logos/proliga_fulltime/terdu.png"
+  },
+  {
+    "id": "option-12",
+    "text": "G'azalkent",
+    "logo": "/dropdown-data/logos/proliga_fulltime/gazalkent.png"
+  },
+  {
+    "id": "option-13",
+    "text": "Yaypan",
+    "logo": "/dropdown-data/logos/proliga_fulltime/yaypan.png"
+  },
+  {
+    "id": "option-14",
+    "text": "Sho'rtan",
+    "logo": "/dropdown-data/logos/proliga_fulltime/shurtan.png"
+  }
+]
