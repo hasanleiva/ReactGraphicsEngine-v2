@@ -145,6 +145,16 @@ router.get('/matches', async (req, res) => {
   }
 });
 
+// GET /api/pfl/matches/:id/events
+router.get('/matches/:id/events', async (req, res) => {
+  try {
+    const data = await pflFetch(`/matches/${req.params.id}/events`);
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // GET /api/pfl/matches/:id
 router.get('/matches/:id', async (req, res) => {
   try {

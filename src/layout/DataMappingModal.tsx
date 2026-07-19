@@ -183,26 +183,44 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
       .sort((a: any, b: any) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
       .slice(0, config.matchCount || 8);
 
+    // Fetch events for all matches in parallel to calculate scores from goals
+    const UZ_MONTHS = ['yanvar','fevral','mart','aprel','may','iyun','iyul','avgust','sentabr','oktabr','noyabr','dekabr'];
+    const matchData = await Promise.all(
+      matches.map(async (match: any) => {
+        const homeId = match.homeClub?.id ?? match.home?.id ?? match.homeTeam?.id;
+        const awayId = match.awayClub?.id ?? match.away?.id ?? match.awayTeam?.id;
+        let homeScore: number | null = null;
+        let awayScore: number | null = null;
+        if (match.id) {
+          try {
+            const evRes = await axios.get(`/api/pfl/matches/${match.id}/events`);
+            const events: any[] = evRes.data?.data || evRes.data || [];
+            const goals = events.filter((e: any) => String(e.type) === '1');
+            homeScore = goals.filter((e: any) => String(e.club?.id) === String(homeId)).length;
+            awayScore = goals.filter((e: any) => String(e.club?.id) === String(awayId)).length;
+          } catch {
+            // leave scores null if events fetch fails
+          }
+        }
+        return { match, homeId, awayId, homeScore, awayScore };
+      })
+    );
+
     actions.history.new();
-    matches.forEach((match: any, i: number) => {
+    matchData.forEach(({ match, homeId, awayId, homeScore, awayScore }, i) => {
       const n = i + 1;
-      const homeId = match.homeClub?.id ?? match.home?.id ?? match.homeTeam?.id;
-      const awayId = match.awayClub?.id ?? match.away?.id ?? match.awayTeam?.id;
       setDropdownByClubId(`Home${n}`, homeId);
       setDropdownByClubId(`Away${n}`, awayId);
       const rawDate = match.startDate || match.date || match.matchDate || match.datetime;
       if (rawDate) {
-        const UZ_MONTHS = ['yanvar','fevral','mart','aprel','may','iyun','iyul','avgust','sentabr','oktabr','noyabr','dekabr'];
         const dt = new Date(rawDate);
         const d = `${dt.getDate()}-${UZ_MONTHS[dt.getMonth()]}`;
         const t = dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
         setTextLayer(`Date${n}`, d);
         setTextLayer(`Time${n}`, t);
       }
-      const sh = match.score?.home ?? match.homeScore ?? match.goals?.home;
-      const sa = match.score?.away ?? match.awayScore ?? match.goals?.away;
-      if (sh !== undefined && sh !== null && sa !== undefined && sa !== null) {
-        setTextLayer(`Score${n}`, `${sh}:${sa}`);
+      if (homeScore !== null && awayScore !== null) {
+        setTextLayer(`Score${n}`, `${homeScore}:${awayScore}`);
       }
       const ch = match.channel || match.broadcast || match.tvChannel;
       if (ch) setTextLayer(`Channel${n}`, ch);
