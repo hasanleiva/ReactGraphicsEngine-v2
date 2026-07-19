@@ -22,7 +22,7 @@ function collectJsonFiles(dir, base) {
     const rel = base ? `${base}/${entry.name}` : entry.name;
     if (entry.isDirectory()) {
       results.push(...collectJsonFiles(full, rel));
-    } else if (entry.isFile() && entry.name.endsWith('.json')) {
+    } else if (entry.isFile() && entry.name.endsWith('.json') && !entry.name.endsWith('.pfl.json')) {
       results.push(rel.replace(/\.json$/, ''));
     }
   }
