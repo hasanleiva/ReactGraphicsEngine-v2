@@ -189,40 +189,51 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
       matches.map(async (match: any) => {
         const homeId = match.homeClub?.id ?? match.home?.id ?? match.homeTeam?.id;
         const awayId = match.awayClub?.id ?? match.away?.id ?? match.awayTeam?.id;
-        // null = fetch failed (don't touch layer), '' = no events (clear layer), 'X:Y' = score
+        // null = fetch failed (don't touch layers)
+        // scoreText '' = no events → clear score, show date/time
+        // scoreText 'X:Y' = match played → set score, clear date/time
         let scoreText: string | null = null;
+        let matchPlayed = false; // true when events are non-empty (game already happened)
         if (match.id) {
           try {
             const evRes = await axios.get(`/api/pfl/matches/${match.id}/events`);
             const events: any[] = evRes.data?.data || evRes.data || [];
             if (events.length === 0) {
-              scoreText = ''; // empty events → clear the score field
+              scoreText = ''; // no events → upcoming match, clear score
             } else {
+              matchPlayed = true; // has events → clear date/time
               const goals = events.filter((e: any) => String(e.type) === '1');
               const homeGoals = goals.filter((e: any) => String(e.club?.id) === String(homeId)).length;
               const awayGoals = goals.filter((e: any) => String(e.club?.id) === String(awayId)).length;
-              scoreText = `${homeGoals}:${awayGoals}`; // '0:0' when events exist but no goals
+              scoreText = `${homeGoals}:${awayGoals}`;
             }
           } catch {
-            // leave scoreText null → don't touch the layer
+            // fetch failed → leave everything unchanged
           }
         }
-        return { match, homeId, awayId, scoreText };
+        return { match, homeId, awayId, scoreText, matchPlayed };
       })
     );
 
     actions.history.new();
-    matchData.forEach(({ match, homeId, awayId, scoreText }, i) => {
+    matchData.forEach(({ match, homeId, awayId, scoreText, matchPlayed }, i) => {
       const n = i + 1;
       setDropdownByClubId(`Home${n}`, homeId);
       setDropdownByClubId(`Away${n}`, awayId);
-      const rawDate = match.startDate || match.date || match.matchDate || match.datetime;
-      if (rawDate) {
-        const dt = new Date(rawDate);
-        const d = `${dt.getDate()}-${UZ_MONTHS[dt.getMonth()]}`;
-        const t = dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-        setTextLayer(`Date${n}`, d);
-        setTextLayer(`Time${n}`, t);
+      if (matchPlayed) {
+        // Match already played — clear date/time, show score
+        setTextLayer(`Date${n}`, '');
+        setTextLayer(`Time${n}`, '');
+      } else {
+        // Upcoming match — show date/time
+        const rawDate = match.startDate || match.date || match.matchDate || match.datetime;
+        if (rawDate) {
+          const dt = new Date(rawDate);
+          const d = `${dt.getDate()}-${UZ_MONTHS[dt.getMonth()]}`;
+          const t = dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+          setTextLayer(`Date${n}`, d);
+          setTextLayer(`Time${n}`, t);
+        }
       }
       if (scoreText !== null) {
         setTextLayer(`Score${n}`, scoreText);
