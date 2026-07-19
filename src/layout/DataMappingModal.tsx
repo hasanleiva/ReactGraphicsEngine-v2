@@ -189,25 +189,30 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
       matches.map(async (match: any) => {
         const homeId = match.homeClub?.id ?? match.home?.id ?? match.homeTeam?.id;
         const awayId = match.awayClub?.id ?? match.away?.id ?? match.awayTeam?.id;
-        let homeScore: number | null = null;
-        let awayScore: number | null = null;
+        // null = fetch failed (don't touch layer), '' = no events (clear layer), 'X:Y' = score
+        let scoreText: string | null = null;
         if (match.id) {
           try {
             const evRes = await axios.get(`/api/pfl/matches/${match.id}/events`);
             const events: any[] = evRes.data?.data || evRes.data || [];
-            const goals = events.filter((e: any) => String(e.type) === '1');
-            homeScore = goals.filter((e: any) => String(e.club?.id) === String(homeId)).length;
-            awayScore = goals.filter((e: any) => String(e.club?.id) === String(awayId)).length;
+            if (events.length === 0) {
+              scoreText = ''; // empty events → clear the score field
+            } else {
+              const goals = events.filter((e: any) => String(e.type) === '1');
+              const homeGoals = goals.filter((e: any) => String(e.club?.id) === String(homeId)).length;
+              const awayGoals = goals.filter((e: any) => String(e.club?.id) === String(awayId)).length;
+              scoreText = `${homeGoals}:${awayGoals}`; // '0:0' when events exist but no goals
+            }
           } catch {
-            // leave scores null if events fetch fails
+            // leave scoreText null → don't touch the layer
           }
         }
-        return { match, homeId, awayId, homeScore, awayScore };
+        return { match, homeId, awayId, scoreText };
       })
     );
 
     actions.history.new();
-    matchData.forEach(({ match, homeId, awayId, homeScore, awayScore }, i) => {
+    matchData.forEach(({ match, homeId, awayId, scoreText }, i) => {
       const n = i + 1;
       setDropdownByClubId(`Home${n}`, homeId);
       setDropdownByClubId(`Away${n}`, awayId);
@@ -219,8 +224,8 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
         setTextLayer(`Date${n}`, d);
         setTextLayer(`Time${n}`, t);
       }
-      if (homeScore !== null && awayScore !== null) {
-        setTextLayer(`Score${n}`, `${homeScore}:${awayScore}`);
+      if (scoreText !== null) {
+        setTextLayer(`Score${n}`, scoreText);
       }
       const ch = match.channel || match.broadcast || match.tvChannel;
       if (ch) setTextLayer(`Channel${n}`, ch);
