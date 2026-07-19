@@ -165,23 +165,32 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
     if (!config || !tourId.trim()) return;
     const tourIdNum = Number(tourId.trim());
 
-    // Fetch with a large limit — the API doesn't reliably filter by tourId server-side,
-    // so we filter client-side and sort by startDate ascending (nearest first).
-    const res = await axios.get('/api/pfl/matches', {
-      params: {
-        tournamentId: config.tournamentId,
-        seasonId: config.seasonId || undefined,
-        tourId: tourIdNum,
-        limit: 100,
-      },
-    });
-    const allMatches: any[] = res.data?.data || res.data?.matches || res.data || [];
+    // Paginate through the API (limit=100 per page) until we have enough matches
+    // for this tour or run out of pages.
+    const matchCount = config.matchCount || 8;
+    const tourMatches: any[] = [];
+    let page = 1;
+    const MAX_PAGES = 10;
 
-    // Filter to only this tour, sort nearest-future first
-    const matches = allMatches
-      .filter((m: any) => m.tour?.id === tourIdNum)
+    while (tourMatches.length < matchCount && page <= MAX_PAGES) {
+      const res = await axios.get('/api/pfl/matches', {
+        params: {
+          tournamentId: config.tournamentId,
+          seasonId: config.seasonId || undefined,
+          tourId: tourIdNum,
+          limit: 100,
+          page,
+        },
+      });
+      const pageData: any[] = res.data?.data || res.data?.matches || res.data || [];
+      tourMatches.push(...pageData.filter((m: any) => m.tour?.id === tourIdNum));
+      if (!res.data?.meta?.hasNextPage) break;
+      page++;
+    }
+
+    const matches = tourMatches
       .sort((a: any, b: any) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
-      .slice(0, config.matchCount || 8);
+      .slice(0, matchCount);
 
     // Fetch events for all matches in parallel to calculate scores from goals
     const UZ_MONTHS = ['yanvar','fevral','mart','aprel','may','iyun','iyul','avgust','sentabr','oktabr','noyabr','dekabr'];
