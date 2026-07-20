@@ -77,6 +77,21 @@ async function pflFetch(endpoint, query = {}) {
   return res.json();
 }
 
+// GET /api/pfl/tours/:folder — returns dropdown-tour.json for a template folder
+router.get('/tours/:folder', (req, res) => {
+  const folder = path.normalize(req.params.folder).replace(/\\/g, '/');
+  if (folder.includes('..') || folder.includes('/')) {
+    return res.status(400).json({ error: 'Invalid folder' });
+  }
+  const filePath = path.join(TEMPLATES_DIR, folder, 'dropdown-tour.json');
+  if (!fs.existsSync(filePath)) return res.json([]);
+  try {
+    res.json(JSON.parse(fs.readFileSync(filePath, 'utf8')));
+  } catch {
+    res.json([]);
+  }
+});
+
 // GET /api/pfl/config/**
 // Config file: uploads/templates/[FOLDER]/[TEMPLATE_NAME].pfl.json
 router.get('/config/*', (req, res) => {

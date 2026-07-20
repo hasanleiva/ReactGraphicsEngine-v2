@@ -82,6 +82,7 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
   const [config, setConfig] = useState<PflConfig | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
   const [dropdownData, setDropdownData] = useState<DropdownItem[]>([]);
+  const [tourOptions, setTourOptions] = useState<Array<{ id: number; title: string }>>([]);
   const [tourId, setTourId] = useState('');
   const [matchId, setMatchId] = useState('');
   const [status, setStatus] = useState<Status>({ type: 'idle', msg: '' });
@@ -122,6 +123,19 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
       .then(res => setDropdownData(res.data))
       .catch(() => setDropdownData([]));
   }, [config?.dropdownFile]);
+
+  // Load tour options from folder's dropdown-tour.json
+  useEffect(() => {
+    setTourId('');
+    setTourOptions([]);
+    axios.get(`/api/pfl/tours/${encodeURIComponent(folder)}`)
+      .then(res => {
+        const opts: Array<{ id: number; title: string }> = Array.isArray(res.data) ? res.data : [];
+        setTourOptions(opts);
+        if (opts.length > 0) setTourId(String(opts[0].id));
+      })
+      .catch(() => setTourOptions([]));
+  }, [folder]);
 
   // ── Layer helpers ────────────────────────────────────────────────────────────
 
@@ -376,23 +390,28 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
             {activeType === 'fixtures' && (
               <div css={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <label css={{ fontSize: 12, fontWeight: 600, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  Tour ID
+                  Tour
                 </label>
-                <input
-                  type="number"
-                  min={1}
-                  placeholder="e.g. 13"
-                  value={tourId}
-                  onChange={e => setTourId(e.target.value)}
-                  css={{
-                    padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 6,
-                    fontSize: 14, outline: 'none', color: '#111827', background: '#f9fafb',
-                    '&:focus': { borderColor: '#3b82f6', background: '#fff' },
-                  }}
-                />
-                <span css={{ fontSize: 11, color: '#9ca3af' }}>
-                  Find tour IDs at api.pfl.uz › tournaments › tours
-                </span>
+                {tourOptions.length > 0 ? (
+                  <select
+                    value={tourId}
+                    onChange={e => setTourId(e.target.value)}
+                    css={{
+                      padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 6,
+                      fontSize: 14, outline: 'none', color: '#111827', background: '#f9fafb',
+                      cursor: 'pointer',
+                      '&:focus': { borderColor: '#3b82f6', background: '#fff' },
+                    }}
+                  >
+                    {tourOptions.map(t => (
+                      <option key={t.id} value={String(t.id)}>{t.title}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <span css={{ fontSize: 12, color: '#9ca3af', padding: '8px 12px', border: '1px dashed #d1d5db', borderRadius: 6 }}>
+                    No tours configured — add dropdown-tour.json to uploads/templates/{folder}/
+                  </span>
+                )}
               </div>
             )}
 
