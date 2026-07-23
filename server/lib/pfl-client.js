@@ -1,6 +1,7 @@
 const PFL_BASE = 'https://api.pfl.uz/public/v1';
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function pflFetch(endpoint, query = {}) {
+async function pflFetch(endpoint, query = {}, retries = 4) {
   const apiKey = process.env.PFL_API_KEY;
   if (!apiKey) throw new Error('PFL_API_KEY not configured in .env');
 
@@ -9,12 +10,26 @@ async function pflFetch(endpoint, query = {}) {
   );
   const url = `${PFL_BASE}${endpoint}${params.toString() ? '?' + params : ''}`;
 
-  const res = await fetch(url, { headers: { 'X-API-Key': apiKey } });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`PFL API ${res.status} ${endpoint}: ${text}`);
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const res = await fetch(url, { headers: { 'X-API-Key': apiKey } });
+
+    if (res.status === 429) {
+      if (attempt === retries) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`PFL API 429 ${endpoint}: ${text}`);
+      }
+      const delay = 2000 * Math.pow(2, attempt); // 2s, 4s, 8s, 16s
+      console.warn(`[pfl-client] 429 on ${endpoint}, retrying in ${delay}ms (attempt ${attempt + 1}/${retries})`);
+      await sleep(delay);
+      continue;
+    }
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`PFL API ${res.status} ${endpoint}: ${text}`);
+    }
+    return res.json();
   }
-  return res.json();
 }
 
 async function fetchAllPages(endpoint, query = {}) {
@@ -28,7 +43,7 @@ async function fetchAllPages(endpoint, query = {}) {
     items.push(...pageItems);
     if (!data.meta?.hasNextPage) break;
     page++;
-    await new Promise(r => setTimeout(r, 130)); // respect rate limit
+    await sleep(500); // pause between pages to avoid rate limiting
   }
 
   return items;
