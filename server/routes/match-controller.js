@@ -30,12 +30,12 @@ router.get('/tours', async (req, res) => {
       conditions.push(`m.season_id = (SELECT id FROM seasons WHERE pfl_id = $${params.length})`);
     }
 
-    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+    conditions.push('m.stage_pfl_id IS NOT NULL');
+    const where = 'WHERE ' + conditions.join(' AND ');
     const { rows } = await pool.query(`
       SELECT DISTINCT m.stage_pfl_id AS id, m.stage_name AS title, m.stage_number AS number
       FROM matches m
       ${where}
-      AND m.stage_pfl_id IS NOT NULL
       ORDER BY m.stage_number ASC
     `, params);
     res.json(rows);

@@ -124,18 +124,24 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
       .catch(() => setDropdownData([]));
   }, [config?.dropdownFile]);
 
-  // Load tour options from folder's dropdown-tour.json
+  // Load tour options from local DB via /api/mc/tours
   useEffect(() => {
     setTourId('');
     setTourOptions([]);
-    axios.get(`/api/pfl/tours/${encodeURIComponent(folder)}`)
+    if (!config) return;
+    axios.get('/api/mc/tours', {
+      params: {
+        tournamentId: config.tournamentId,
+        seasonId: config.seasonId || undefined,
+      },
+    })
       .then(res => {
         const opts: Array<{ id: number; title: string }> = Array.isArray(res.data) ? res.data : [];
         setTourOptions(opts);
         if (opts.length > 0) setTourId(String(opts[0].id));
       })
       .catch(() => setTourOptions([]));
-  }, [folder]);
+  }, [config]);
 
   // ── Layer helpers ────────────────────────────────────────────────────────────
 
@@ -178,78 +184,39 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
   const applyFixtures = async () => {
     if (!config || !tourId.trim()) return;
     const tourIdNum = Number(tourId.trim());
-
-    // Paginate through the API (limit=100 per page) until we have enough matches
-    // for this tour or run out of pages.
     const matchCount = config.matchCount || 8;
-    const tourMatches: any[] = [];
-    let page = 1;
-    const MAX_PAGES = 10;
 
-    while (tourMatches.length < matchCount && page <= MAX_PAGES) {
-      const res = await axios.get('/api/pfl/matches', {
-        params: {
-          tournamentId: config.tournamentId,
-          seasonId: config.seasonId || undefined,
-          tourId: tourIdNum,
-          limit: 100,
-          page,
-        },
-      });
-      const pageData: any[] = res.data?.data || res.data?.matches || res.data || [];
-      tourMatches.push(...pageData.filter((m: any) => m.tour?.id === tourIdNum));
-      if (!res.data?.meta?.hasNextPage) break;
-      page++;
-    }
+    // Fetch matches from local DB — scores already computed from sync
+    const res = await axios.get('/api/mc/matches', {
+      params: {
+        tournamentId: config.tournamentId,
+        seasonId: config.seasonId || undefined,
+        tourId: tourIdNum,
+        limit: matchCount,
+        page: 1,
+      },
+    });
+    const matches: any[] = (res.data?.data || []).slice(0, matchCount);
 
-    const matches = tourMatches
-      .sort((a: any, b: any) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
-      .slice(0, matchCount);
-
-    // Fetch events for all matches in parallel to calculate scores from goals
     const UZ_MONTHS = ['yanvar','fevral','mart','aprel','may','iyun','iyul','avgust','sentabr','oktabr','noyabr','dekabr'];
-    const matchData = await Promise.all(
-      matches.map(async (match: any) => {
-        const homeId = match.homeClub?.id ?? match.home?.id ?? match.homeTeam?.id;
-        const awayId = match.awayClub?.id ?? match.away?.id ?? match.awayTeam?.id;
-        // null = fetch failed (don't touch layers)
-        // scoreText '' = no events → clear score, show date/time
-        // scoreText 'X:Y' = match played → set score, clear date/time
-        let scoreText: string | null = null;
-        let matchPlayed = false; // true when events are non-empty (game already happened)
-        if (match.id) {
-          try {
-            const evRes = await axios.get(`/api/pfl/matches/${match.id}/events`);
-            const events: any[] = evRes.data?.data || evRes.data || [];
-            if (events.length === 0) {
-              scoreText = ''; // no events → upcoming match, clear score
-            } else {
-              matchPlayed = true; // has events → clear date/time
-              const goals = events.filter((e: any) => String(e.type) === '1');
-              const homeGoals = goals.filter((e: any) => String(e.club?.id) === String(homeId)).length;
-              const awayGoals = goals.filter((e: any) => String(e.club?.id) === String(awayId)).length;
-              scoreText = `${homeGoals}:${awayGoals}`;
-            }
-          } catch {
-            // fetch failed → leave everything unchanged
-          }
-        }
-        return { match, homeId, awayId, scoreText, matchPlayed };
-      })
-    );
 
     actions.history.new();
-    matchData.forEach(({ match, homeId, awayId, scoreText, matchPlayed }, i) => {
+    matches.forEach((match: any, i: number) => {
       const n = i + 1;
+      const homeId = match.home_team_pfl_id;
+      const awayId = match.away_team_pfl_id;
+
       setDropdownByClubId(`Home${n}`, homeId);
       setDropdownByClubId(`Away${n}`, awayId);
+
+      const matchPlayed = match.status !== 'SCHEDULED' && match.home_score !== null && match.away_score !== null;
+
       if (matchPlayed) {
-        // Match already played — clear date/time, show score
         setTextLayer(`Date${n}`, '');
         setTextLayer(`Time${n}`, '');
+        setTextLayer(`Score${n}`, `${match.home_score}:${match.away_score}`);
       } else {
-        // Upcoming match — show date/time
-        const rawDate = match.startDate || match.date || match.matchDate || match.datetime;
+        const rawDate = match.start_date;
         if (rawDate) {
           const dt = new Date(rawDate);
           const d = `${dt.getDate()}-${UZ_MONTHS[dt.getMonth()]}`;
@@ -257,16 +224,11 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
           setTextLayer(`Date${n}`, d);
           setTextLayer(`Time${n}`, t);
         }
+        setTextLayer(`Score${n}`, '');
       }
-      if (scoreText !== null) {
-        setTextLayer(`Score${n}`, scoreText);
-      }
-      const ch = match.channel || match.broadcast || match.tvChannel;
-      if (ch) setTextLayer(`Channel${n}`, ch);
     });
 
-    // TUR layer shows the tour title from the API (e.g. "12-tur") or falls back to tourId
-    const tourTitle = matches[0]?.tour?.title || String(tourIdNum);
+    const tourTitle = matches[0]?.stage_name || String(tourIdNum);
     setTextLayer('TUR', tourTitle);
     setTextLayer('Tur', tourTitle);
   };
@@ -296,19 +258,19 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
 
   const applyFulltime = async () => {
     if (!matchId.trim()) return;
-    const res = await axios.get(`/api/pfl/matches/${matchId.trim()}`);
-    const match: any = res.data?.data || res.data;
+    const res = await axios.get(`/api/mc/matches/${matchId.trim()}`);
+    const match: any = res.data;
     actions.history.new();
-    const homeId = match.homeClub?.id ?? match.home?.id ?? match.homeTeam?.id;
-    const awayId = match.awayClub?.id ?? match.away?.id ?? match.awayTeam?.id;
+    const homeId = match.home_team_pfl_id;
+    const awayId = match.away_team_pfl_id;
     // PRO template names
     setDropdownByClubId('HOMECLUB', homeId);
     setDropdownByClubId('AWAYCLUB', awayId);
     // UZSL template names
     setDropdownByClubId('HomeTeam', homeId);
     setDropdownByClubId('AwayTeam', awayId);
-    const sh = match.score?.home ?? match.homeScore ?? match.goals?.home ?? '';
-    const sa = match.score?.away ?? match.awayScore ?? match.goals?.away ?? '';
+    const sh = match.home_score ?? '';
+    const sa = match.away_score ?? '';
     setTextLayer('HOMEGOALS', String(sh));
     setTextLayer('AWAYGOALS', String(sa));
     setTextLayer('HomeScores', String(sh));
@@ -318,7 +280,7 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
 
   const handleLoad = async () => {
     if (!config) return;
-    setStatus({ type: 'loading', msg: 'Fetching data from PFL API...' });
+    setStatus({ type: 'loading', msg: 'Loading data from local database...' });
     try {
       if (activeType === 'standings') await applyStandings();
       else if (activeType === 'fulltime') await applyFulltime();
