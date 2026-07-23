@@ -1,6 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const db = require('../db');
+const pool = require('../db/postgres');
 const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
@@ -13,8 +13,6 @@ const COOKIE_OPTIONS = {
 };
 
 function cookieOptions() {
-  // Use COOKIE_SECURE=true only when HTTPS is available.
-  // Defaults to false so HTTP-only deployments (no SSL) work correctly.
   const secure = process.env.COOKIE_SECURE === 'true';
   return { ...COOKIE_OPTIONS, secure };
 }
@@ -27,23 +25,28 @@ router.post('/signup', async (req, res) => {
       return res.status(400).json({ error: 'Email and password required' });
     }
 
-    const existing = db.prepare('SELECT email FROM users WHERE email = ?').get(email);
-    if (existing) {
+    const existing = await pool.query('SELECT email FROM users WHERE email = $1', [email]);
+    if (existing.rows[0]) {
       return res.status(400).json({ error: 'User already exists' });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
-    db.prepare('INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)').run(
-      email, passwordHash, name || null, 'user'
+    await pool.query(
+      'INSERT INTO users (email, password_hash, name, role) VALUES ($1, $2, $3, $4)',
+      [email, passwordHash, name || null, 'user']
     );
 
     const token = `tok_${Date.now()}_${Math.random().toString(36).substring(2)}`;
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    db.prepare('INSERT INTO sessions (token, email, expires_at) VALUES (?, ?, ?)').run(token, email, expiresAt);
+    await pool.query(
+      'INSERT INTO sessions (token, email, expires_at) VALUES ($1, $2, $3)',
+      [token, email, expiresAt]
+    );
 
     res.cookie('auth_token', token, cookieOptions());
     return res.json({ success: true, user: { email, name: name || null } });
   } catch (err) {
+    console.error('[auth/signup]', err.message);
     return res.status(500).json({ error: 'Server error' });
   }
 });
@@ -56,28 +59,33 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password required' });
     }
 
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    const user = result.rows[0];
     if (!user || !(await bcrypt.compare(password, user.password_hash))) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const token = `tok_${Date.now()}_${Math.random().toString(36).substring(2)}`;
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    db.prepare('INSERT INTO sessions (token, email, expires_at) VALUES (?, ?, ?)').run(token, email, expiresAt);
+    await pool.query(
+      'INSERT INTO sessions (token, email, expires_at) VALUES ($1, $2, $3)',
+      [token, email, expiresAt]
+    );
 
     res.cookie('auth_token', token, cookieOptions());
     return res.json({ success: true, user: { email: user.email, name: user.name, role: user.role } });
   } catch (err) {
+    console.error('[auth/login]', err.message);
     return res.status(500).json({ error: 'Server error' });
   }
 });
 
 // POST /api/auth/logout
-router.post('/logout', (req, res) => {
+router.post('/logout', async (req, res) => {
   try {
     const token = req.cookies?.auth_token;
     if (token) {
-      db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
+      await pool.query('DELETE FROM sessions WHERE token = $1', [token]);
     }
     res.clearCookie('auth_token', { path: '/' });
     return res.json({ success: true });
@@ -95,16 +103,18 @@ router.get('/user', requireAuth, (req, res) => {
 router.post('/password', requireAuth, async (req, res) => {
   try {
     const { oldPassword, newPassword } = req.body;
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(req.user.email);
+    const result = await pool.query('SELECT * FROM users WHERE email = $1', [req.user.email]);
+    const user = result.rows[0];
 
     if (!(await bcrypt.compare(oldPassword, user.password_hash))) {
       return res.status(400).json({ error: 'Incorrect old password' });
     }
 
     const newHash = await bcrypt.hash(newPassword, 10);
-    db.prepare('UPDATE users SET password_hash = ? WHERE email = ?').run(newHash, req.user.email);
+    await pool.query('UPDATE users SET password_hash = $1 WHERE email = $2', [newHash, req.user.email]);
     return res.json({ success: true });
   } catch (err) {
+    console.error('[auth/password]', err.message);
     return res.status(500).json({ error: 'Server error' });
   }
 });

@@ -6,35 +6,34 @@ const cookieParser = require('cookie-parser');
 const path = require('path');
 const fs = require('fs');
 
+const migrate = require('./db/migrate');
 const authRouter = require('./routes/auth');
 const imagesRouter = require('./routes/images');
 const templatesRouter = require('./routes/templates');
 const fontsRouter = require('./routes/fonts');
 const pflRouter = require('./routes/pfl');
+const matchControllerRouter = require('./routes/match-controller');
+const adminRouter = require('./routes/admin');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const isProd = process.env.NODE_ENV === 'production';
 
-// ── Middleware ────────────────────────────────────────────────────────────────
-
 app.use(cors({
   origin: isProd ? false : (process.env.CORS_ORIGIN || 'http://localhost:5173'),
   credentials: true,
 }));
-
 app.use(cookieParser());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-
-// ── API Routes ────────────────────────────────────────────────────────────────
 
 app.use('/api/auth', authRouter);
 app.use('/api/images', imagesRouter);
 app.use('/api/templates', templatesRouter);
 app.use('/api/pfl', pflRouter);
+app.use('/api/mc', matchControllerRouter);
+app.use('/api/admin', adminRouter);
 
-// Generic R2-replacement route (mounted separately so it doesn't conflict)
 const { Router } = require('express');
 const r2Router = Router();
 const uploadDir = process.env.UPLOAD_DIR || path.join(__dirname, '../uploads');
@@ -58,8 +57,6 @@ app.get('/search-fonts', (req, res, next) => {
 });
 app.use('/fonts', fontsRouter);
 
-// ── Production: serve Vite build ──────────────────────────────────────────────
-
 if (isProd) {
   const distPath = path.join(__dirname, '../dist');
   app.use(express.static(distPath));
@@ -68,11 +65,16 @@ if (isProd) {
   });
 }
 
-// ── Start ─────────────────────────────────────────────────────────────────────
-
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  if (!isProd) {
-    console.log('Vite dev server should be running on http://localhost:5173');
-  }
-});
+migrate()
+  .then(() => {
+    const { startScheduler } = require('./services/sync-scheduler');
+    startScheduler();
+    app.listen(PORT, () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+      if (!isProd) console.log('Vite dev server should be running on http://localhost:5173');
+    });
+  })
+  .catch(err => {
+    console.error('Failed to run migration:', err.message);
+    process.exit(1);
+  });
