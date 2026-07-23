@@ -3,15 +3,10 @@ const router = express.Router();
 const path = require('path');
 const fs = require('fs');
 
-const PFL_BASE = 'https://api.pfl.uz/public/v1';
-const TEMPLATES_DIR = path.join(__dirname, '../../uploads/templates');
+const { pflFetch } = require('../lib/pfl-client');
+const { requireAdmin } = require('../middleware/auth');
 
-function requireAdmin(req, res, next) {
-  if (!req.user || req.user.role !== 'admin') {
-    return res.status(403).json({ error: 'Admin only' });
-  }
-  next();
-}
+const TEMPLATES_DIR = path.join(__dirname, '../../uploads/templates');
 
 // Resolve "PRO/FIXTURES (GARB)" → { folder: "PRO", templateName: "FIXTURES (GARB)" }
 function resolveTemplateId(templateId) {
@@ -23,58 +18,6 @@ function resolveTemplateId(templateId) {
   const templateName = safe.slice(slashIdx + 1);
   if (!folder || !templateName) return null;
   return { folder, templateName };
-}
-
-// ── Minimal flat XML parser / serializer (no dependencies) ───────────────────
-
-function parseXml(xmlStr) {
-  const result = {};
-  const re = /<([\w-]+)>([\s\S]*?)<\/\1>/g;
-  let m;
-  while ((m = re.exec(xmlStr)) !== null) {
-    const key = m[1];
-    const raw = m[2].trim();
-    if (raw === '' || raw.toLowerCase() === 'null') {
-      result[key] = null;
-    } else if (raw === 'true') {
-      result[key] = true;
-    } else if (raw === 'false') {
-      result[key] = false;
-    } else if (!isNaN(Number(raw))) {
-      result[key] = Number(raw);
-    } else {
-      result[key] = raw;
-    }
-  }
-  return result;
-}
-
-function toXml(obj) {
-  const lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<pfl-config>'];
-  for (const [key, val] of Object.entries(obj)) {
-    lines.push(`  <${key}>${val === null || val === undefined ? '' : val}</${key}>`);
-  }
-  lines.push('</pfl-config>');
-  return lines.join('\n');
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function pflFetch(endpoint, query = {}) {
-  const apiKey = process.env.PFL_API_KEY;
-  if (!apiKey) throw new Error('PFL_API_KEY not configured in .env');
-
-  const params = new URLSearchParams(
-    Object.entries(query).filter(([, v]) => v !== undefined && v !== null && v !== '')
-  );
-  const url = `${PFL_BASE}${endpoint}${params.toString() ? '?' + params : ''}`;
-
-  const res = await fetch(url, { headers: { 'X-API-Key': apiKey } });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(`PFL API ${res.status}: ${text}`);
-  }
-  return res.json();
 }
 
 // GET /api/pfl/tours/:folder — returns dropdown-tour.json for a template folder
