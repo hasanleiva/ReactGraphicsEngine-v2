@@ -124,24 +124,18 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
       .catch(() => setDropdownData([]));
   }, [config?.dropdownFile]);
 
-  // Load tour options from local DB via /api/mc/tours
+  // Load tour options from folder's dropdown-tour.json
   useEffect(() => {
     setTourId('');
     setTourOptions([]);
-    if (!config) return;
-    axios.get('/api/mc/tours', {
-      params: {
-        tournamentId: config.tournamentId,
-        seasonId: config.seasonId || undefined,
-      },
-    })
+    axios.get(`/api/pfl/tours/${encodeURIComponent(folder)}`)
       .then(res => {
         const opts: Array<{ id: number; title: string }> = Array.isArray(res.data) ? res.data : [];
         setTourOptions(opts);
         if (opts.length > 0) setTourId(String(opts[0].id));
       })
       .catch(() => setTourOptions([]));
-  }, [config]);
+  }, [folder]);
 
   // ── Layer helpers ────────────────────────────────────────────────────────────
 
