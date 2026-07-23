@@ -49,9 +49,9 @@ router.post('/upload', requireAuth, upload.single('file'), (req, res) => {
 });
 
 // GET /api/images/list
-router.get('/list', (req, res) => {
+router.get('/list', async (req, res) => {
   try {
-    const user = getSessionUser(req);
+    const user = await getSessionUser(req);
 
     if (!user || user.role !== 'admin') {
       return res.json([]);
