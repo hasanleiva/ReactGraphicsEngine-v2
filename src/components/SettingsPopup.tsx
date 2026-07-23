@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import styled from '@emotion/styled';
 
@@ -76,7 +77,8 @@ const SuccessText = styled.p`
 `;
 
 export const SettingsPopup: React.FC = () => {
-  const { showSettingsPopup, setShowSettingsPopup } = useAuth();
+  const { showSettingsPopup, setShowSettingsPopup, user } = useAuth();
+  const navigate = useNavigate();
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [error, setError] = useState('');
@@ -103,9 +105,17 @@ export const SettingsPopup: React.FC = () => {
         <Title>Settings</Title>
         {error && <ErrorText>{error}</ErrorText>}
         {success && <SuccessText>{success}</SuccessText>}
-        <Input 
-          type="password" 
-          placeholder="Old Password" 
+        {user?.role === 'admin' && (
+          <Button
+            onClick={() => { setShowSettingsPopup(false); navigate('/admin'); }}
+            style={{ background: '#1e293b' }}
+          >
+            Go to Admin Panel
+          </Button>
+        )}
+        <Input
+          type="password"
+          placeholder="Old Password"
           value={oldPassword} 
           onChange={(e) => setOldPassword(e.target.value)} 
         />
