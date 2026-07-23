@@ -26,7 +26,7 @@ async function runSync(scope = 'full', tournamentId, seasonId) {
   const logId = logRes.rows[0].id;
 
   try {
-    const result = await syncAll(tournamentId, seasonId);
+    const result = await syncAll(tournamentId, seasonId, scope);
     await pool.query(
       'UPDATE sync_logs SET status=$1, items_synced=$2, completed_at=NOW() WHERE id=$3',
       ['success', result.itemsSynced, logId]

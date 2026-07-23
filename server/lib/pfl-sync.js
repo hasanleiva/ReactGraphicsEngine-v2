@@ -254,7 +254,7 @@ async function syncReferees(matchPflId) {
   return count;
 }
 
-async function syncAll(tournamentId, seasonId) {
+async function syncAll(tournamentId, seasonId, scope = 'full') {
   // If no explicit tournament, discover from .pfl.json files
   const pairs = (tournamentId != null)
     ? [{ tournamentId, seasonId }]
@@ -265,42 +265,54 @@ async function syncAll(tournamentId, seasonId) {
     return { itemsSynced: 0 };
   }
 
-  let totalMatches = 0;
+  let totalItems = 0;
 
-  const teamCount = await syncTeams();
-  console.log(`[sync] Teams: ${teamCount}`);
+  // full + matches: sync teams and match schedules
+  if (scope === 'full' || scope === 'matches') {
+    const teamCount = await syncTeams();
+    console.log(`[sync] Teams: ${teamCount}`);
+    totalItems += teamCount;
 
-  for (const pair of pairs) {
-    const matchCount = await syncMatches(pair.tournamentId, pair.seasonId);
-    totalMatches += matchCount;
-    console.log(`[sync] Matches (tournament ${pair.tournamentId}): ${matchCount}`);
-
-    // Sync events for all matches in this tournament
-    const matchRows = await pool.query(
-      'SELECT pfl_id FROM matches WHERE tournament_id = (SELECT id FROM tournaments WHERE pfl_id = $1)',
-      [pair.tournamentId]
-    );
-    for (const row of matchRows.rows) {
-      try {
-        await syncMatchEvents(row.pfl_id);
-        await new Promise(r => setTimeout(r, 130));
-      } catch (e) {
-        console.warn(`[sync] Events failed for match ${row.pfl_id}: ${e.message}`);
-      }
+    for (const pair of pairs) {
+      const matchCount = await syncMatches(pair.tournamentId, pair.seasonId);
+      totalItems += matchCount;
+      console.log(`[sync] Matches (tournament ${pair.tournamentId}): ${matchCount}`);
     }
+  }
 
-    // Sync referees for all matches
-    for (const row of matchRows.rows) {
-      try {
-        await syncReferees(row.pfl_id);
-        await new Promise(r => setTimeout(r, 130));
-      } catch (e) {
-        console.warn(`[sync] Referees failed for match ${row.pfl_id}: ${e.message}`);
+  // full + events: update scores and cards for every stored match
+  if (scope === 'full' || scope === 'events') {
+    for (const pair of pairs) {
+      const matchRows = await pool.query(
+        'SELECT pfl_id FROM matches WHERE tournament_id = (SELECT id FROM tournaments WHERE pfl_id = $1)',
+        [pair.tournamentId]
+      );
+      console.log(`[sync] Events for ${matchRows.rows.length} matches (tournament ${pair.tournamentId})`);
+
+      for (const row of matchRows.rows) {
+        try {
+          await syncMatchEvents(row.pfl_id);
+          await new Promise(r => setTimeout(r, 500));
+        } catch (e) {
+          console.warn(`[sync] Events failed for match ${row.pfl_id}: ${e.message}`);
+        }
+      }
+
+      // Referees only on full sync
+      if (scope === 'full') {
+        for (const row of matchRows.rows) {
+          try {
+            await syncReferees(row.pfl_id);
+            await new Promise(r => setTimeout(r, 500));
+          } catch (e) {
+            console.warn(`[sync] Referees failed for match ${row.pfl_id}: ${e.message}`);
+          }
+        }
       }
     }
   }
 
-  return { itemsSynced: totalMatches };
+  return { itemsSynced: totalItems };
 }
 
 module.exports = { syncTeams, syncMatches, syncMatchEvents, syncReferees, syncAll, discoverTournamentPairs };
