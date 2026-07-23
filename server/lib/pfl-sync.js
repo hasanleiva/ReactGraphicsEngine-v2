@@ -223,7 +223,7 @@ async function syncMatchEvents(matchPflId) {
 
 async function syncReferees(matchPflId) {
   const matchDetail = await fetchMatch(matchPflId);
-  const refList = matchDetail.referees || matchDetail.referee ? [matchDetail.referee].filter(Boolean) : [];
+  const refList = matchDetail.referees || (matchDetail.referee ? [matchDetail.referee] : []);
   if (refList.length === 0) return 0;
 
   const matchRes = await pool.query('SELECT id FROM matches WHERE pfl_id = $1', [matchPflId]);
@@ -286,6 +286,16 @@ async function syncAll(tournamentId, seasonId) {
         await new Promise(r => setTimeout(r, 130));
       } catch (e) {
         console.warn(`[sync] Events failed for match ${row.pfl_id}: ${e.message}`);
+      }
+    }
+
+    // Sync referees for all matches
+    for (const row of matchRows.rows) {
+      try {
+        await syncReferees(row.pfl_id);
+        await new Promise(r => setTimeout(r, 130));
+      } catch (e) {
+        console.warn(`[sync] Referees failed for match ${row.pfl_id}: ${e.message}`);
       }
     }
   }
