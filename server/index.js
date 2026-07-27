@@ -75,6 +75,6 @@ migrate()
     });
   })
   .catch(err => {
-    console.error('Failed to run migration:', err.message);
+    console.error('Failed to run migration:', err);
     process.exit(1);
   });

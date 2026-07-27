@@ -1,6 +1,6 @@
 {
   "tournamentId": 2,
-  "seasonId": null,
+  "seasonId": 11,
   "templateType": "fixtures",
   "matchCount": 7,
   "dropdownFile": "proliga.json"

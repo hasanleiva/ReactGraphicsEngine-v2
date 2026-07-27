@@ -88,6 +88,9 @@ export default function AdminPage() {
   const [syncScope, setSyncScope] = useState('full');
   const [syncMsg, setSyncMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [tournamentSyncStatus, setTournamentSyncStatus] = useState<Record<string, { syncing: boolean; msg: { ok: boolean; text: string } | null }>>({});
+  const [manualTournamentId, setManualTournamentId] = useState('');
+  const [manualSeasonId, setManualSeasonId] = useState('');
 
   // Status state
   const [health, setHealth] = useState<HealthData | null>(null);
@@ -130,7 +133,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (activeTab === 'configs') loadConfigs();
-    if (activeTab === 'sync') loadSyncData();
+    if (activeTab === 'sync') { loadSyncData(); loadConfigs(); }
     if (activeTab === 'status') loadHealth();
   }, [activeTab, loadConfigs, loadSyncData, loadHealth]);
 
@@ -162,6 +165,28 @@ export default function AdminPage() {
     }
   };
 
+  const handleTournamentSync = async (
+    tournamentId: number,
+    seasonId: number | null,
+    scope: 'matches' | 'events',
+  ) => {
+    const key = `${tournamentId}_${seasonId ?? ''}`;
+    setTournamentSyncStatus(prev => ({ ...prev, [key]: { syncing: true, msg: null } }));
+    try {
+      await axios.post('/api/admin/sync', { scope, tournamentId, seasonId });
+      setTournamentSyncStatus(prev => ({
+        ...prev,
+        [key]: { syncing: false, msg: { ok: true, text: `${scope} sync triggered` } },
+      }));
+      setTimeout(loadSyncData, 3000);
+    } catch (e: any) {
+      setTournamentSyncStatus(prev => ({
+        ...prev,
+        [key]: { syncing: false, msg: { ok: false, text: e.response?.data?.error || 'Sync failed' } },
+      }));
+    }
+  };
+
   const handleSyncNow = async () => {
     setSyncing(true);
     setSyncMsg(null);
@@ -178,6 +203,20 @@ export default function AdminPage() {
 
   if (loading) return null;
   if (!user || user.role !== 'admin') return null;
+
+  const tournamentPairs = Array.from(
+    configs
+      .filter(c => c.config && (c.config as any).tournamentId != null)
+      .reduce((map, c) => {
+        const cfg = c.config as any;
+        const key = `${cfg.tournamentId}_${cfg.seasonId ?? ''}`;
+        if (!map.has(key)) {
+          map.set(key, { key, folder: c.folder, tournamentId: Number(cfg.tournamentId), seasonId: cfg.seasonId != null ? Number(cfg.seasonId) : null });
+        }
+        return map;
+      }, new Map<string, { key: string; folder: string; tournamentId: number; seasonId: number | null }>())
+      .values()
+  );
 
   return (
     <div style={styles.page}>
@@ -232,6 +271,49 @@ export default function AdminPage() {
                 <button style={styles.outlineBtn} onClick={loadSyncData}>Refresh</button>
               </div>
               {syncMsg && <div style={styles.toast(syncMsg.ok)}>{syncMsg.text}</div>}
+            </div>
+
+            {/* ── Per-Tournament Sync ── */}
+            <div style={styles.card}>
+              <label style={styles.label}>Sync by Tournament</label>
+              <div style={{ marginTop: 0 }}>
+                <label style={{ ...styles.label, marginBottom: 8 }}>Manual Entry</label>
+                <div style={styles.row}>
+                  <input
+                    type="number"
+                    placeholder="Tournament ID"
+                    style={{ ...styles.input, maxWidth: 150 }}
+                    value={manualTournamentId}
+                    onChange={e => setManualTournamentId(e.target.value)}
+                  />
+                  <input
+                    type="number"
+                    placeholder="Season ID (optional)"
+                    style={{ ...styles.input, maxWidth: 170 }}
+                    value={manualSeasonId}
+                    onChange={e => setManualSeasonId(e.target.value)}
+                  />
+                  <button
+                    style={styles.btn(!manualTournamentId ? '#9ca3af' : '#3b82f6')}
+                    disabled={!manualTournamentId}
+                    onClick={() => handleTournamentSync(Number(manualTournamentId), manualSeasonId ? Number(manualSeasonId) : null, 'matches')}
+                  >
+                    Sync Matches
+                  </button>
+                  <button
+                    style={styles.btn(!manualTournamentId ? '#9ca3af' : '#10b981')}
+                    disabled={!manualTournamentId}
+                    onClick={() => handleTournamentSync(Number(manualTournamentId), manualSeasonId ? Number(manualSeasonId) : null, 'events')}
+                  >
+                    Sync Events
+                  </button>
+                  {tournamentSyncStatus[`${manualTournamentId}_${manualSeasonId}`]?.msg && (
+                    <span style={{ fontSize: 12, color: tournamentSyncStatus[`${manualTournamentId}_${manualSeasonId}`].msg!.ok ? '#166534' : '#991b1b' }}>
+                      {tournamentSyncStatus[`${manualTournamentId}_${manualSeasonId}`].msg!.text}
+                    </span>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div style={styles.card}>

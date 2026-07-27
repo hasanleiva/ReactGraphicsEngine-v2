@@ -190,6 +190,8 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
         page: 1,
       },
     });
+    console.log('[DataMapping] params:', { tournamentId: config.tournamentId, seasonId: config.seasonId, tourId: tourIdNum });
+    console.log('[DataMapping] response:', res.data);
     const matches: any[] = (res.data?.data || []).slice(0, matchCount);
 
     const UZ_MONTHS = ['yanvar','fevral','mart','aprel','may','iyun','iyul','avgust','sentabr','oktabr','noyabr','dekabr'];
@@ -203,7 +205,7 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
       setDropdownByClubId(`Home${n}`, homeId);
       setDropdownByClubId(`Away${n}`, awayId);
 
-      const matchPlayed = match.status !== 'SCHEDULED' && match.home_score !== null && match.away_score !== null;
+      const matchPlayed = match.home_score !== null && match.away_score !== null;
 
       if (matchPlayed) {
         setTextLayer(`Date${n}`, '');
@@ -273,6 +275,7 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
   };
 
   const handleLoad = async () => {
+    console.log('[DataMapping] handleLoad — config:', config, 'activeType:', activeType, 'tourId:', tourId);
     if (!config) return;
     setStatus({ type: 'loading', msg: 'Loading data from local database...' });
     try {

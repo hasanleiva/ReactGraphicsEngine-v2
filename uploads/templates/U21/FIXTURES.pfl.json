@@ -1,6 +1,6 @@
 {
   "tournamentId": 4,
-  "seasonId": null,
+  "seasonId": 11,
   "templateType": "fixtures",
   "matchCount": 8,
   "dropdownFile": "logo230px.json"

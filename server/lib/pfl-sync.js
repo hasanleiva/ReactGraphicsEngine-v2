@@ -283,11 +283,15 @@ async function syncAll(tournamentId, seasonId, scope = 'full') {
   // full + events: update scores and cards for every stored match
   if (scope === 'full' || scope === 'events') {
     for (const pair of pairs) {
-      const matchRows = await pool.query(
-        'SELECT pfl_id FROM matches WHERE tournament_id = (SELECT id FROM tournaments WHERE pfl_id = $1)',
-        [pair.tournamentId]
-      );
-      console.log(`[sync] Events for ${matchRows.rows.length} matches (tournament ${pair.tournamentId})`);
+      // Only fetch matches that have already started AND don't have scores yet.
+      // Matches with scores are already final — no need to re-fetch their events.
+      // Full sync re-fetches all past matches regardless of score (for referees etc.).
+      const query = scope === 'full'
+        ? 'SELECT pfl_id FROM matches WHERE tournament_id = (SELECT id FROM tournaments WHERE pfl_id = $1) AND start_date <= NOW()'
+        : 'SELECT pfl_id FROM matches WHERE tournament_id = (SELECT id FROM tournaments WHERE pfl_id = $1) AND start_date <= NOW() AND (home_score IS NULL OR away_score IS NULL)';
+
+      const matchRows = await pool.query(query, [pair.tournamentId]);
+      console.log(`[sync] Events for ${matchRows.rows.length} matches (tournament ${pair.tournamentId}, scope: ${scope})`);
 
       for (const row of matchRows.rows) {
         try {
