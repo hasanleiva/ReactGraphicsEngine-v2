@@ -186,6 +186,7 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
         tournamentId: config.tournamentId,
         seasonId: config.seasonId || undefined,
         tourId: tourIdNum,
+        groupId: config.groupId || undefined,
         limit: matchCount,
         page: 1,
       },

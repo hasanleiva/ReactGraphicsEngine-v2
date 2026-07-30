@@ -69,6 +69,42 @@ router.put('/sync/settings', async (req, res) => {
   }
 });
 
+// DELETE /api/admin/events
+// Body: { tournamentId, seasonId? }
+// Clears home_score/away_score and deletes player cards for matching matches
+router.delete('/events', async (req, res) => {
+  const { tournamentId, seasonId } = req.body;
+  if (!tournamentId) return res.status(400).json({ error: 'tournamentId is required' });
+
+  try {
+    const conditions = ['m.tournament_id = (SELECT id FROM tournaments WHERE pfl_id = $1)'];
+    const params = [Number(tournamentId)];
+
+    if (seasonId) {
+      params.push(Number(seasonId));
+      conditions.push(`m.season_id = (SELECT id FROM seasons WHERE pfl_id = $${params.length})`);
+    }
+
+    const where = 'WHERE ' + conditions.join(' AND ');
+
+    // Delete cards for affected matches
+    await pool.query(
+      `DELETE FROM player_match_cards WHERE match_id IN (SELECT id FROM matches m ${where})`,
+      params
+    );
+
+    // Reset scores
+    const upd = await pool.query(
+      `UPDATE matches m SET home_score = NULL, away_score = NULL, updated_at = NOW() ${where}`,
+      params
+    );
+
+    res.json({ success: true, matchesCleared: upd.rowCount });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // GET /api/admin/health
 router.get('/health', async (req, res) => {
   try {

@@ -92,6 +92,12 @@ export default function AdminPage() {
   const [manualTournamentId, setManualTournamentId] = useState('');
   const [manualSeasonId, setManualSeasonId] = useState('');
 
+  // Clear events state
+  const [clearTournamentId, setClearTournamentId] = useState('');
+  const [clearSeasonId, setClearSeasonId] = useState('');
+  const [clearing, setClearing] = useState(false);
+  const [clearMsg, setClearMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
   // Status state
   const [health, setHealth] = useState<HealthData | null>(null);
   const [healthError, setHealthError] = useState('');
@@ -184,6 +190,25 @@ export default function AdminPage() {
         ...prev,
         [key]: { syncing: false, msg: { ok: false, text: e.response?.data?.error || 'Sync failed' } },
       }));
+    }
+  };
+
+  const handleClearEvents = async () => {
+    if (!clearTournamentId) return;
+    setClearing(true);
+    setClearMsg(null);
+    try {
+      const res = await axios.delete('/api/admin/events', {
+        data: {
+          tournamentId: Number(clearTournamentId),
+          seasonId: clearSeasonId ? Number(clearSeasonId) : undefined,
+        },
+      });
+      setClearMsg({ ok: true, text: `Cleared scores & cards for ${res.data.matchesCleared} matches` });
+    } catch (e: any) {
+      setClearMsg({ ok: false, text: e.response?.data?.error || 'Clear failed' });
+    } finally {
+      setClearing(false);
     }
   };
 
@@ -314,6 +339,38 @@ export default function AdminPage() {
                   )}
                 </div>
               </div>
+            </div>
+
+            {/* ── Clear Events ── */}
+            <div style={styles.card}>
+              <label style={styles.label}>Clear Events</label>
+              <p style={{ margin: '0 0 12px', fontSize: 13, color: '#6b7280' }}>
+                Resets scores and cards for a tournament so you can re-sync events from scratch.
+              </p>
+              <div style={styles.row}>
+                <input
+                  type="number"
+                  placeholder="Tournament ID"
+                  style={{ ...styles.input, maxWidth: 150 }}
+                  value={clearTournamentId}
+                  onChange={e => { setClearTournamentId(e.target.value); setClearMsg(null); }}
+                />
+                <input
+                  type="number"
+                  placeholder="Season ID (optional)"
+                  style={{ ...styles.input, maxWidth: 170 }}
+                  value={clearSeasonId}
+                  onChange={e => { setClearSeasonId(e.target.value); setClearMsg(null); }}
+                />
+                <button
+                  style={styles.btn(!clearTournamentId || clearing ? '#9ca3af' : '#ef4444')}
+                  disabled={!clearTournamentId || clearing}
+                  onClick={handleClearEvents}
+                >
+                  {clearing ? 'Clearing…' : 'Clear Events'}
+                </button>
+              </div>
+              {clearMsg && <div style={styles.toast(clearMsg.ok)}>{clearMsg.text}</div>}
             </div>
 
             <div style={styles.card}>

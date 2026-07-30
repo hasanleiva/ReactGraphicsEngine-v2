@@ -47,7 +47,7 @@ router.get('/tours', async (req, res) => {
 // GET /api/mc/matches?tournamentId=&seasonId=&tourId=&page=&limit=
 router.get('/matches', async (req, res) => {
   try {
-    const { tournamentId, seasonId, tourId } = req.query;
+    const { tournamentId, seasonId, tourId, groupId } = req.query;
     const page = Math.max(1, parseInt(req.query.page || '1', 10));
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || '20', 10)));
     const offset = (page - 1) * limit;
@@ -66,6 +66,10 @@ router.get('/matches', async (req, res) => {
     if (tourId) {
       params.push(Number(tourId));
       conditions.push(`m.stage_pfl_id = $${params.length}`);
+    }
+    if (groupId) {
+      params.push(Number(groupId));
+      conditions.push(`m.group_pfl_id = $${params.length}`);
     }
 
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';

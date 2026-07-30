@@ -5,7 +5,8 @@ const { fetchTeams, fetchAllMatches, fetchMatch, fetchMatchEvents } = require('.
 
 const TEMPLATES_DIR = path.join(__dirname, '../../uploads/templates');
 
-// Read all .pfl.json files and return unique {tournamentId, seasonId} pairs
+// Read all .pfl.json files and return unique {tournamentId, seasonId} pairs.
+// group_pfl_id is populated separately via individual match fetches in syncReferees.
 function discoverTournamentPairs() {
   const pairs = new Map();
   if (!fs.existsSync(TEMPLATES_DIR)) return [];
@@ -105,6 +106,8 @@ async function syncMatches(tournamentId, seasonId) {
     const stagePflId = m.tour?.id || null;
     const stageName = m.tour?.title || null;
     const stageNumber = m.tour?.number || null;
+    // Bulk API doesn't return group; group_pfl_id is set by syncReferees via individual match fetch.
+    const groupPflId = m.group?.id || null;
     const startDate = m.startDate || m.start_date || null;
     const homeScore = m.homeScore ?? m.home_score ?? null;
     const awayScore = m.awayScore ?? m.away_score ?? null;
@@ -114,9 +117,9 @@ async function syncMatches(tournamentId, seasonId) {
       INSERT INTO matches (
         pfl_id, tournament_id, season_id,
         home_team_id, away_team_id, stadium_id,
-        stage_pfl_id, stage_name, stage_number,
+        stage_pfl_id, stage_name, stage_number, group_pfl_id,
         start_date, home_score, away_score, status, pfl_synced_at, updated_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW(),NOW())
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW(),NOW())
       ON CONFLICT (pfl_id) DO UPDATE SET
         tournament_id = EXCLUDED.tournament_id,
         season_id = EXCLUDED.season_id,
@@ -126,6 +129,7 @@ async function syncMatches(tournamentId, seasonId) {
         stage_pfl_id = EXCLUDED.stage_pfl_id,
         stage_name = EXCLUDED.stage_name,
         stage_number = EXCLUDED.stage_number,
+        group_pfl_id = COALESCE(EXCLUDED.group_pfl_id, matches.group_pfl_id),
         start_date = EXCLUDED.start_date,
         home_score = EXCLUDED.home_score,
         away_score = EXCLUDED.away_score,
@@ -135,7 +139,7 @@ async function syncMatches(tournamentId, seasonId) {
     `, [
       pflId, tournamentRowId, seasonRowId,
       homeTeamId, awayTeamId, stadiumId,
-      stagePflId, stageName, stageNumber,
+      stagePflId, stageName, stageNumber, groupPflId,
       startDate, homeScore, awayScore, status
     ]);
     count++;
@@ -153,24 +157,40 @@ async function syncMatchEvents(matchPflId) {
   const events = await fetchMatchEvents(matchPflId);
   if (!Array.isArray(events) || events.length === 0) return 0;
 
-  // Count goals per club
-  const goalsByClub = {};
-  for (const ev of events) {
-    if (ev.type === 1 && ev.club?.id) {
-      goalsByClub[ev.club.id] = (goalsByClub[ev.club.id] || 0) + 1;
-    }
-  }
-
-  // Get home/away team pfl_club_ids
-  let homeScore = null, awayScore = null;
+  // Resolve home/away pfl_club_ids upfront (needed for own goal logic)
+  let homePflClubId = null, awayPflClubId = null;
   if (match.home_team_id) {
     const r = await pool.query('SELECT pfl_club_id FROM teams WHERE id = $1', [match.home_team_id]);
-    if (r.rows[0]) homeScore = goalsByClub[r.rows[0].pfl_club_id] ?? 0;
+    homePflClubId = r.rows[0]?.pfl_club_id ?? null;
   }
   if (match.away_team_id) {
     const r = await pool.query('SELECT pfl_club_id FROM teams WHERE id = $1', [match.away_team_id]);
-    if (r.rows[0]) awayScore = goalsByClub[r.rows[0].pfl_club_id] ?? 0;
+    awayPflClubId = r.rows[0]?.pfl_club_id ?? null;
   }
+
+  // Count goals per club:
+  //   type 1 — Ordinary Goal  → credit to ev.club
+  //   type 2 — Penalty Goal   → credit to ev.club
+  //   type 8 — Own Goal       → credit to the OPPOSITE team
+  const goalsByClub = {};
+  for (const ev of events) {
+    const clubId = ev.club?.id;
+    if (!clubId) continue;
+
+    if (ev.type === 1 || ev.type === 2) {
+      goalsByClub[clubId] = (goalsByClub[clubId] || 0) + 1;
+    } else if (ev.type === 8) {
+      // Own goal — add to the opponent
+      if (clubId === homePflClubId && awayPflClubId) {
+        goalsByClub[awayPflClubId] = (goalsByClub[awayPflClubId] || 0) + 1;
+      } else if (clubId === awayPflClubId && homePflClubId) {
+        goalsByClub[homePflClubId] = (goalsByClub[homePflClubId] || 0) + 1;
+      }
+    }
+  }
+
+  const homeScore = homePflClubId !== null ? (goalsByClub[homePflClubId] ?? 0) : null;
+  const awayScore = awayPflClubId !== null ? (goalsByClub[awayPflClubId] ?? 0) : null;
 
   // Update scores
   if (homeScore !== null || awayScore !== null) {
@@ -180,8 +200,8 @@ async function syncMatchEvents(matchPflId) {
     );
   }
 
-  // Upsert cards
-  const CARD_TYPE_MAP = { 2: 'YELLOW', 4: 'YELLOW', 3: 'RED', 5: 'RED', 7: 'RED' };
+  // Upsert cards — type 2 is Penalty Goal, NOT a card
+  const CARD_TYPE_MAP = { 4: 'YELLOW', 3: 'RED', 5: 'RED', 7: 'RED' };
   let cardCount = 0;
 
   for (const ev of events) {
@@ -224,11 +244,21 @@ async function syncMatchEvents(matchPflId) {
 async function syncReferees(matchPflId) {
   const matchDetail = await fetchMatch(matchPflId);
   const refList = matchDetail.referees || (matchDetail.referee ? [matchDetail.referee] : []);
-  if (refList.length === 0) return 0;
 
   const matchRes = await pool.query('SELECT id FROM matches WHERE pfl_id = $1', [matchPflId]);
   if (!matchRes.rows[0]) return 0;
   const matchRowId = matchRes.rows[0].id;
+
+  // Individual match endpoint returns group — update group_pfl_id if present
+  const groupPflId = matchDetail.group?.id || null;
+  if (groupPflId) {
+    await pool.query(
+      'UPDATE matches SET group_pfl_id = $1, updated_at = NOW() WHERE id = $2',
+      [groupPflId, matchRowId]
+    );
+  }
+
+  if (refList.length === 0) return 0;
 
   let count = 0;
   for (const ref of refList) {
@@ -255,10 +285,19 @@ async function syncReferees(matchPflId) {
 }
 
 async function syncAll(tournamentId, seasonId, scope = 'full') {
-  // If no explicit tournament, discover from .pfl.json files
-  const pairs = (tournamentId != null)
-    ? [{ tournamentId, seasonId }]
-    : discoverTournamentPairs();
+  const allPairs = discoverTournamentPairs();
+
+  const pairs = tournamentId != null
+    ? (() => {
+        const filtered = allPairs.filter(p =>
+          p.tournamentId === Number(tournamentId) &&
+          (seasonId == null || p.seasonId === Number(seasonId))
+        );
+        return filtered.length > 0
+          ? filtered
+          : [{ tournamentId: Number(tournamentId), seasonId: seasonId ? Number(seasonId) : null }];
+      })()
+    : allPairs;
 
   if (pairs.length === 0) {
     console.log('[sync] No tournament pairs found — add .pfl.json files to uploads/templates/*');
@@ -267,7 +306,6 @@ async function syncAll(tournamentId, seasonId, scope = 'full') {
 
   let totalItems = 0;
 
-  // full + matches: sync teams and match schedules
   if (scope === 'full' || scope === 'matches') {
     const teamCount = await syncTeams();
     console.log(`[sync] Teams: ${teamCount}`);
@@ -278,17 +316,39 @@ async function syncAll(tournamentId, seasonId, scope = 'full') {
       totalItems += matchCount;
       console.log(`[sync] Matches (tournament ${pair.tournamentId}): ${matchCount}`);
     }
+
+    // Populate group_pfl_id for any match still missing it (bulk API doesn't return group).
+    // Covers future rounds that won't be reached by the events sync.
+    for (const pair of pairs) {
+      const { rows: nullGroupRows } = await pool.query(
+        'SELECT pfl_id FROM matches WHERE tournament_id = (SELECT id FROM tournaments WHERE pfl_id = $1) AND group_pfl_id IS NULL',
+        [pair.tournamentId]
+      );
+      if (nullGroupRows.length === 0) continue;
+      console.log(`[sync] Fetching group for ${nullGroupRows.length} ungrouped matches (tournament ${pair.tournamentId})`);
+      for (const row of nullGroupRows) {
+        try {
+          const matchDetail = await fetchMatch(row.pfl_id);
+          const groupPflId = matchDetail.group?.id || null;
+          if (groupPflId) {
+            await pool.query(
+              'UPDATE matches SET group_pfl_id = $1, updated_at = NOW() WHERE pfl_id = $2',
+              [groupPflId, row.pfl_id]
+            );
+          }
+          await new Promise(r => setTimeout(r, 130));
+        } catch (e) {
+          console.warn(`[sync] Group fetch failed for match ${row.pfl_id}: ${e.message}`);
+        }
+      }
+    }
   }
 
-  // full + events: update scores and cards for every stored match
   if (scope === 'full' || scope === 'events') {
     for (const pair of pairs) {
-      // Only fetch matches that have already started AND don't have scores yet.
-      // Matches with scores are already final — no need to re-fetch their events.
-      // Full sync re-fetches all past matches regardless of score (for referees etc.).
-      const query = scope === 'full'
-        ? 'SELECT pfl_id FROM matches WHERE tournament_id = (SELECT id FROM tournaments WHERE pfl_id = $1) AND start_date <= NOW()'
-        : 'SELECT pfl_id FROM matches WHERE tournament_id = (SELECT id FROM tournaments WHERE pfl_id = $1) AND start_date <= NOW() AND (home_score IS NULL OR away_score IS NULL)';
+      const scoreFilter = scope !== 'full' ? ' AND (home_score IS NULL OR away_score IS NULL)' : '';
+      const query =
+        `SELECT pfl_id FROM matches WHERE tournament_id = (SELECT id FROM tournaments WHERE pfl_id = $1) AND start_date <= NOW()${scoreFilter}`;
 
       const matchRows = await pool.query(query, [pair.tournamentId]);
       console.log(`[sync] Events for ${matchRows.rows.length} matches (tournament ${pair.tournamentId}, scope: ${scope})`);
@@ -302,7 +362,6 @@ async function syncAll(tournamentId, seasonId, scope = 'full') {
         }
       }
 
-      // Referees only on full sync
       if (scope === 'full') {
         for (const row of matchRows.rows) {
           try {

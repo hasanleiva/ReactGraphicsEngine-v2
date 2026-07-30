@@ -1,8 +1,8 @@
 {
-  "tournamentId": 0,
-  "seasonId": null,
+  "tournamentId": 3,
+  "seasonId": 11,
   "templateType": "fixtures",
-  "matchCount": 8,
+  "matchCount": 5,
   "dropdownFile": "1liga_sharq.json",
-  "groupId": null
+  "groupId": 9
 }

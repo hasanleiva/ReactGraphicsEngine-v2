@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS matches (
   stage_pfl_id INTEGER,
   stage_name TEXT,
   stage_number INTEGER,
+  group_pfl_id INTEGER,
   start_date TIMESTAMPTZ,
   home_score INTEGER,
   away_score INTEGER,
@@ -118,3 +119,6 @@ CREATE TABLE IF NOT EXISTS sync_logs (
   started_at TIMESTAMPTZ DEFAULT NOW(),
   completed_at TIMESTAMPTZ
 );
+
+-- Migrations for existing databases
+ALTER TABLE matches ADD COLUMN IF NOT EXISTS group_pfl_id INTEGER;

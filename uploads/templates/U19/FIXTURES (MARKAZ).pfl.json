@@ -1,8 +1,8 @@
 {
-  "tournamentId": 0,
-  "seasonId": null,
+  "tournamentId": 5,
+  "seasonId": 11,
   "templateType": "fixtures",
-  "matchCount": 8,
-  "dropdownFile": "u19_markaz.json",
-  "groupId": null
+  "matchCount": 5,
+  "dropdownFile": "u19_name_markaz.json",
+  "groupId": 11
 }
