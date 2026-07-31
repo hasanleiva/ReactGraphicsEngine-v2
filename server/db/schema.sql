@@ -120,5 +120,17 @@ CREATE TABLE IF NOT EXISTS sync_logs (
   completed_at TIMESTAMPTZ
 );
 
+-- Per-tournament auto-sync schedules
+CREATE TABLE IF NOT EXISTS tournament_sync_configs (
+  id SERIAL PRIMARY KEY,
+  tournament_id INTEGER NOT NULL,
+  season_id INTEGER,
+  matches_interval_minutes INTEGER NOT NULL DEFAULT 60,
+  matches_enabled BOOLEAN NOT NULL DEFAULT false,
+  events_interval_minutes INTEGER NOT NULL DEFAULT 60,
+  events_enabled BOOLEAN NOT NULL DEFAULT false,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Migrations for existing databases
 ALTER TABLE matches ADD COLUMN IF NOT EXISTS group_pfl_id INTEGER;

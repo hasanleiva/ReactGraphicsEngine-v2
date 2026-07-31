@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const pool = require('../db/postgres');
 const { requireAdmin } = require('../middleware/auth');
-const { triggerNow, reschedule } = require('../services/sync-scheduler');
+const { triggerNow, reschedule, rebuildTournamentSchedules } = require('../services/sync-scheduler');
 
 const TEMPLATES_DIR = path.join(__dirname, '../../uploads/templates');
 
@@ -50,20 +50,109 @@ router.get('/sync/settings', async (req, res) => {
 });
 
 // PUT /api/admin/sync/settings
-// Body: { sync_interval_minutes: 30 }
+// Body: { sync_interval_minutes?, sync_enabled? }
 router.put('/sync/settings', async (req, res) => {
   try {
-    const { sync_interval_minutes } = req.body;
-    const minutes = parseInt(sync_interval_minutes, 10);
-    if (!minutes || minutes < 1) return res.status(400).json({ error: 'Invalid interval' });
+    const { sync_interval_minutes, sync_enabled } = req.body;
 
-    await pool.query(`
-      INSERT INTO sync_settings (key, value, updated_at) VALUES ('sync_interval_minutes', $1, NOW())
-      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
-    `, [String(minutes)]);
+    if (sync_interval_minutes !== undefined) {
+      const minutes = parseInt(sync_interval_minutes, 10);
+      if (!minutes || minutes < 1) return res.status(400).json({ error: 'Invalid interval' });
+      await pool.query(`
+        INSERT INTO sync_settings (key, value, updated_at) VALUES ('sync_interval_minutes', $1, NOW())
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+      `, [String(minutes)]);
+    }
 
-    reschedule(minutes);
-    res.json({ success: true, sync_interval_minutes: minutes });
+    if (sync_enabled !== undefined) {
+      await pool.query(`
+        INSERT INTO sync_settings (key, value, updated_at) VALUES ('sync_enabled', $1, NOW())
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+      `, [String(sync_enabled)]);
+    }
+
+    const { rows } = await pool.query(
+      "SELECT key, value FROM sync_settings WHERE key IN ('sync_interval_minutes', 'sync_enabled')"
+    );
+    const s = Object.fromEntries(rows.map(r => [r.key, r.value]));
+    reschedule(parseInt(s.sync_interval_minutes || '60', 10), s.sync_enabled !== 'false');
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/admin/tournament-sync-configs
+router.get('/tournament-sync-configs', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT * FROM tournament_sync_configs ORDER BY tournament_id, season_id NULLS LAST'
+    );
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/admin/tournament-sync-configs
+router.post('/tournament-sync-configs', async (req, res) => {
+  try {
+    const {
+      tournament_id, season_id,
+      matches_interval_minutes = 60, matches_enabled = false,
+      events_interval_minutes = 60, events_enabled = false,
+    } = req.body;
+    if (!tournament_id) return res.status(400).json({ error: 'tournament_id is required' });
+
+    const { rows } = await pool.query(`
+      INSERT INTO tournament_sync_configs
+        (tournament_id, season_id, matches_interval_minutes, matches_enabled, events_interval_minutes, events_enabled, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      RETURNING *
+    `, [Number(tournament_id), season_id ? Number(season_id) : null,
+        Number(matches_interval_minutes), Boolean(matches_enabled),
+        Number(events_interval_minutes), Boolean(events_enabled)]);
+
+    await rebuildTournamentSchedules();
+    res.json(rows[0]);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PUT /api/admin/tournament-sync-configs/:id
+router.put('/tournament-sync-configs/:id', async (req, res) => {
+  try {
+    const { matches_interval_minutes, matches_enabled, events_interval_minutes, events_enabled } = req.body;
+    const { rows } = await pool.query(`
+      UPDATE tournament_sync_configs SET
+        matches_interval_minutes = COALESCE($1, matches_interval_minutes),
+        matches_enabled          = COALESCE($2, matches_enabled),
+        events_interval_minutes  = COALESCE($3, events_interval_minutes),
+        events_enabled           = COALESCE($4, events_enabled),
+        updated_at = NOW()
+      WHERE id = $5 RETURNING *
+    `, [
+      matches_interval_minutes != null ? Number(matches_interval_minutes) : null,
+      matches_enabled != null ? Boolean(matches_enabled) : null,
+      events_interval_minutes != null ? Number(events_interval_minutes) : null,
+      events_enabled != null ? Boolean(events_enabled) : null,
+      Number(req.params.id),
+    ]);
+    if (!rows[0]) return res.status(404).json({ error: 'Not found' });
+    await rebuildTournamentSchedules();
+    res.json(rows[0]);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// DELETE /api/admin/tournament-sync-configs/:id
+router.delete('/tournament-sync-configs/:id', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM tournament_sync_configs WHERE id = $1', [Number(req.params.id)]);
+    await rebuildTournamentSchedules();
+    res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -102,6 +191,40 @@ router.delete('/events', async (req, res) => {
     res.json({ success: true, matchesCleared: upd.rowCount });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// GET /api/admin/tour-dropdowns
+router.get('/tour-dropdowns', (req, res) => {
+  try {
+    if (!fs.existsSync(TEMPLATES_DIR)) return res.json([]);
+    const result = [];
+    for (const folder of fs.readdirSync(TEMPLATES_DIR).sort()) {
+      const filePath = path.join(TEMPLATES_DIR, folder, 'dropdown-tour.json');
+      if (!fs.existsSync(filePath)) continue;
+      try {
+        result.push({ folder, data: JSON.parse(fs.readFileSync(filePath, 'utf8')) });
+      } catch {
+        result.push({ folder, data: null, error: 'parse error' });
+      }
+    }
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PUT /api/admin/tour-dropdowns/:folder
+router.put('/tour-dropdowns/:folder', (req, res) => {
+  const folder = safeFolder(req.params.folder);
+  if (!folder) return res.status(400).json({ error: 'Invalid path' });
+  const filePath = path.join(TEMPLATES_DIR, folder, 'dropdown-tour.json');
+  if (!fs.existsSync(path.join(TEMPLATES_DIR, folder))) return res.status(404).json({ error: 'Folder not found' });
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(req.body, null, 2), 'utf8');
+    res.json({ success: true });
+  } catch {
+    res.status(500).json({ error: 'Write failed' });
   }
 });
 
