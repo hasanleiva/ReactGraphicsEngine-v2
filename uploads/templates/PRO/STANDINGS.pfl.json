@@ -1,6 +1,6 @@
 {
-  "tournamentId": 4,
-  "seasonId": null,
+  "tournamentId": 2,
+  "seasonId": 11,
   "templateType": "standings",
   "dropdownFile": "proliga.json"
 }

@@ -53,8 +53,10 @@ async function fetchTeams() {
   return fetchAllPages('/clubs');
 }
 
-async function fetchAllMatches(tournamentId, seasonId) {
-  return fetchAllPages('/matches', { tournamentId, seasonId });
+async function fetchAllMatches(tournamentId, seasonId, updatedSince = null) {
+  const query = { tournamentId, seasonId, include: 'events' };
+  if (updatedSince) query.updatedSince = updatedSince;
+  return fetchAllPages('/matches', query);
 }
 
 async function fetchMatch(id) {

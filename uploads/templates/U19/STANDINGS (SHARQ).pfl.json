@@ -1,7 +1,7 @@
 {
-  "tournamentId": 0,
-  "seasonId": null,
+  "tournamentId": 5,
+  "seasonId": 11,
   "templateType": "standings",
-  "dropdownFile": "u19_sharq.json",
-  "groupId": null
+  "dropdownFile": "u19_name_sharq.json",
+  "groupId": 9
 }

@@ -191,8 +191,6 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
         page: 1,
       },
     });
-    console.log('[DataMapping] params:', { tournamentId: config.tournamentId, seasonId: config.seasonId, tourId: tourIdNum });
-    console.log('[DataMapping] response:', res.data);
     const matches: any[] = (res.data?.data || []).slice(0, matchCount);
 
     const UZ_MONTHS = ['yanvar','fevral','mart','aprel','may','iyun','iyul','avgust','sentabr','oktabr','noyabr','dekabr'];
@@ -243,12 +241,13 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
     standings.forEach((entry: any, i: number) => {
       const n = i + 1;
       const clubId = entry.club?.id ?? entry.team?.id ?? entry.clubId ?? entry.teamId;
-      setDropdownByClubId(`Team${n}`, clubId);
+      setDropdownByClubId(`Team-${n}`, clubId);
       const pts = entry.points ?? entry.pts ?? entry.point ?? '';
       const gf = entry.goalsFor ?? entry.gf ?? entry.scored ?? entry.goals_for ?? '';
+      const ga = entry.goalsAgainst ?? entry.ga ?? entry.conceded ?? entry.goals_against ?? '';
       const gp = entry.played ?? entry.gp ?? entry.matchesPlayed ?? entry.games ?? '';
       if (pts !== '') setTextLayer(`${n}-OCHKO`, String(pts));
-      if (gf !== '') setTextLayer(`${n}-GF`, String(gf));
+      if (gf !== '' || ga !== '') setTextLayer(`${n}-GF`, `${gf}-${ga}`);
       if (gp !== '') setTextLayer(`${n}-O'YIN`, String(gp));
     });
   };
@@ -276,7 +275,6 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
   };
 
   const handleLoad = async () => {
-    console.log('[DataMapping] handleLoad — config:', config, 'activeType:', activeType, 'tourId:', tourId);
     if (!config) return;
     setStatus({ type: 'loading', msg: 'Loading data from local database...' });
     try {

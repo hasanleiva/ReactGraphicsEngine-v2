@@ -1,7 +1,7 @@
 {
-  "tournamentId": 0,
-  "seasonId": null,
+  "tournamentId": 3,
+  "seasonId": 11,
   "templateType": "standings",
   "dropdownFile": "1liga_garb.json",
-  "groupId": null
+  "groupId": 10
 }

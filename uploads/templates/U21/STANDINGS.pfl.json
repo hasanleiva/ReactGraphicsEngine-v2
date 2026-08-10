@@ -1,6 +1,6 @@
 {
   "tournamentId": 4,
-  "seasonId": null,
+  "seasonId": 11,
   "templateType": "standings",
-  "dropdownFile": "u21.json"
+  "dropdownFile": "logo167px.json"
 }
