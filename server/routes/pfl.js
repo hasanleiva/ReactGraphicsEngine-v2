@@ -5,6 +5,7 @@ const fs = require('fs');
 
 const { pflFetch } = require('../lib/pfl-client');
 const { requireAdmin } = require('../middleware/auth');
+const pool = require('../db/postgres');
 
 const TEMPLATES_DIR = path.join(__dirname, '../../uploads/templates');
 
@@ -74,12 +75,44 @@ router.post('/config/*', requireAdmin, (req, res) => {
 });
 
 // GET /api/pfl/standings/:tournamentId?seasonId=&groupId=
+// Reads from local DB (populated by syncStandings)
 router.get('/standings/:tournamentId', async (req, res) => {
   try {
-    const data = await pflFetch(`/standings/${req.params.tournamentId}`, {
-      seasonId: req.query.seasonId,
-      groupId: req.query.groupId,
-    });
+    const { seasonId, groupId } = req.query;
+    const params = [Number(req.params.tournamentId)];
+
+    let q = `
+      SELECT s.position, s.points, s.played, s.goals_for, s.goals_against,
+             t.pfl_club_id, t.title, t.title_en, t.logo, t.code
+      FROM standings s
+      LEFT JOIN teams t ON t.pfl_club_id = s.pfl_club_id
+      WHERE s.tournament_id = (SELECT id FROM tournaments WHERE pfl_id = $1)
+    `;
+
+    if (seasonId) {
+      params.push(Number(seasonId));
+      q += ` AND s.season_id = (SELECT id FROM seasons WHERE pfl_id = $${params.length})`;
+    } else {
+      q += ` AND s.season_id IS NULL`;
+    }
+
+    if (groupId) {
+      params.push(Number(groupId));
+      q += ` AND s.group_pfl_id = $${params.length}`;
+    } else {
+      q += ` AND s.group_pfl_id IS NULL`;
+    }
+
+    q += ` ORDER BY s.position`;
+
+    const { rows } = await pool.query(q, params);
+    const data = rows.map(row => ({
+      club: { id: row.pfl_club_id, title: row.title, titleEn: row.title_en, logo: row.logo },
+      points: row.points,
+      played: row.played,
+      goalsFor: row.goals_for,
+      goalsAgainst: row.goals_against,
+    }));
     res.json(data);
   } catch (e) {
     res.status(500).json({ error: e.message });

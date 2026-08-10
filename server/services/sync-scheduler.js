@@ -79,6 +79,7 @@ async function rebuildTournamentSchedules() {
   for (const tasks of tournamentTasks.values()) {
     if (tasks.matches) tasks.matches.stop();
     if (tasks.events) tasks.events.stop();
+    if (tasks.standings) tasks.standings.stop();
   }
   tournamentTasks.clear();
 
@@ -104,7 +105,16 @@ async function rebuildTournamentSchedules() {
         );
         console.log(`[scheduler] t${cfg.tournament_id} events — cron: "${expr}"`);
       }
-      if (tasks.matches || tasks.events) {
+      if (cfg.standings_enabled) {
+        const expr = minutesToCron(cfg.standings_interval_minutes);
+        tasks.standings = cron.schedule(expr, () =>
+          runSync('standings', cfg.tournament_id, cfg.season_id).catch(e =>
+            console.error(`[scheduler] t${cfg.tournament_id} standings failed:`, e.message)
+          )
+        );
+        console.log(`[scheduler] t${cfg.tournament_id} standings — cron: "${expr}"`);
+      }
+      if (tasks.matches || tasks.events || tasks.standings) {
         tournamentTasks.set(cfg.id, tasks);
       }
     }

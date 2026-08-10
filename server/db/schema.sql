@@ -132,5 +132,23 @@ CREATE TABLE IF NOT EXISTS tournament_sync_configs (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Standings data (synced from PFL API)
+CREATE TABLE IF NOT EXISTS standings (
+  id              SERIAL PRIMARY KEY,
+  tournament_id   INTEGER REFERENCES tournaments(id),
+  season_id       INTEGER REFERENCES seasons(id),
+  group_pfl_id    INTEGER,
+  pfl_club_id     INTEGER NOT NULL,
+  position        INTEGER,
+  points          INTEGER,
+  played          INTEGER,
+  goals_for       INTEGER,
+  goals_against   INTEGER,
+  pfl_synced_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Migrations for existing databases
 ALTER TABLE matches ADD COLUMN IF NOT EXISTS group_pfl_id INTEGER;
+ALTER TABLE tournament_sync_configs
+  ADD COLUMN IF NOT EXISTS standings_interval_minutes INTEGER NOT NULL DEFAULT 60,
+  ADD COLUMN IF NOT EXISTS standings_enabled BOOLEAN NOT NULL DEFAULT false;

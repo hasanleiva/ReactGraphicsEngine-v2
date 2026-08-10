@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const pool = require('../db/postgres');
-const { fetchTeams, fetchAllMatches, fetchMatch, fetchMatchEvents } = require('./pfl-client');
+const { pflFetch, fetchTeams, fetchAllMatches, fetchMatch, fetchMatchEvents } = require('./pfl-client');
 
 const TEMPLATES_DIR = path.join(__dirname, '../../uploads/templates');
 
@@ -26,6 +26,28 @@ function discoverTournamentPairs() {
     }
   }
   return [...pairs.values()];
+}
+
+// Returns unique groupId values (including null) from standings .pfl.json configs for this tournament.
+function discoverGroupsForStandings(tournamentId, seasonId) {
+  const groups = new Set();
+  if (!fs.existsSync(TEMPLATES_DIR)) return [null];
+
+  for (const folder of fs.readdirSync(TEMPLATES_DIR)) {
+    const folderPath = path.join(TEMPLATES_DIR, folder);
+    if (!fs.statSync(folderPath).isDirectory()) continue;
+    for (const file of fs.readdirSync(folderPath)) {
+      if (!file.endsWith('.pfl.json')) continue;
+      try {
+        const config = JSON.parse(fs.readFileSync(path.join(folderPath, file), 'utf8'));
+        if (config.tournamentId !== tournamentId) continue;
+        if (seasonId != null && config.seasonId != null && config.seasonId !== seasonId) continue;
+        if (config.templateType !== 'standings') continue;
+        groups.add(config.groupId || null);
+      } catch { /* skip malformed */ }
+    }
+  }
+  return groups.size > 0 ? [...groups] : [null];
 }
 
 async function syncTeams() {
@@ -53,7 +75,16 @@ async function syncTeams() {
 }
 
 async function syncMatches(tournamentId, seasonId) {
-  const apiMatches = await fetchAllMatches(tournamentId, seasonId);
+  // Read last sync timestamp for this tournament/season pair
+  const settingKey = `last_match_sync_${tournamentId}_${seasonId || 'null'}`;
+  const settingRes = await pool.query('SELECT value FROM sync_settings WHERE key = $1', [settingKey]);
+  const updatedSince = settingRes.rows[0]?.value || null;
+
+  // Snapshot time BEFORE fetching so any changes during a long sync are caught next time
+  const syncStartTime = new Date().toISOString();
+
+  console.log(`[sync] Fetching matches for tournament ${tournamentId}${updatedSince ? ` updated since ${updatedSince}` : ' (full)'}`);
+  const apiMatches = await fetchAllMatches(tournamentId, seasonId, updatedSince);
   let count = 0;
 
   // Upsert tournament row
@@ -106,12 +137,13 @@ async function syncMatches(tournamentId, seasonId) {
     const stagePflId = m.tour?.id || null;
     const stageName = m.tour?.title || null;
     const stageNumber = m.tour?.number || null;
-    // Bulk API doesn't return group; group_pfl_id is set by syncReferees via individual match fetch.
     const groupPflId = m.group?.id || null;
     const startDate = m.startDate || m.start_date || null;
+    // v2 API: scores are top-level fields, not calculated from events
     const homeScore = m.homeScore ?? m.home_score ?? null;
     const awayScore = m.awayScore ?? m.away_score ?? null;
-    const status = m.status || 'SCHEDULED';
+    // v2 API: field renamed status → state
+    const state = m.state || m.status || 'scheduled';
 
     await pool.query(`
       INSERT INTO matches (
@@ -140,87 +172,52 @@ async function syncMatches(tournamentId, seasonId) {
       pflId, tournamentRowId, seasonRowId,
       homeTeamId, awayTeamId, stadiumId,
       stagePflId, stageName, stageNumber, groupPflId,
-      startDate, homeScore, awayScore, status
+      startDate, homeScore, awayScore, state
     ]);
+
+    // Process inline events (from include=events) for card data
+    const matchRes = await pool.query('SELECT id FROM matches WHERE pfl_id = $1', [pflId]);
+    const matchRowId = matchRes.rows[0]?.id;
+    if (matchRowId && Array.isArray(m.events) && m.events.length > 0) {
+      await processCards(matchRowId, m.events);
+    }
+
     count++;
   }
+
+  // Persist the pre-fetch timestamp so the next sync only fetches changes
+  await pool.query(`
+    INSERT INTO sync_settings (key, value, updated_at) VALUES ($1, $2, NOW())
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+  `, [settingKey, syncStartTime]);
 
   return count;
 }
 
-async function syncMatchEvents(matchPflId) {
-  // Get our internal match ID
-  const matchRes = await pool.query('SELECT id, home_team_id, away_team_id FROM matches WHERE pfl_id = $1', [matchPflId]);
-  if (!matchRes.rows[0]) return 0;
-  const match = matchRes.rows[0];
+// v2 API event types — type 3 is PENALTY_MISSED (not a card)
+const CARD_TYPE_MAP = { 4: 'YELLOW', 5: 'RED', 7: 'RED' };
 
-  const events = await fetchMatchEvents(matchPflId);
-  if (!Array.isArray(events) || events.length === 0) return 0;
-
-  // Resolve home/away pfl_club_ids upfront (needed for own goal logic)
-  let homePflClubId = null, awayPflClubId = null;
-  if (match.home_team_id) {
-    const r = await pool.query('SELECT pfl_club_id FROM teams WHERE id = $1', [match.home_team_id]);
-    homePflClubId = r.rows[0]?.pfl_club_id ?? null;
-  }
-  if (match.away_team_id) {
-    const r = await pool.query('SELECT pfl_club_id FROM teams WHERE id = $1', [match.away_team_id]);
-    awayPflClubId = r.rows[0]?.pfl_club_id ?? null;
-  }
-
-  // Count goals per club:
-  //   type 1 — Ordinary Goal  → credit to ev.club
-  //   type 2 — Penalty Goal   → credit to ev.club
-  //   type 8 — Own Goal       → credit to the OPPOSITE team
-  const goalsByClub = {};
-  for (const ev of events) {
-    const clubId = ev.club?.id;
-    if (!clubId) continue;
-
-    if (ev.type === 1 || ev.type === 2) {
-      goalsByClub[clubId] = (goalsByClub[clubId] || 0) + 1;
-    } else if (ev.type === 8) {
-      // Own goal — add to the opponent
-      if (clubId === homePflClubId && awayPflClubId) {
-        goalsByClub[awayPflClubId] = (goalsByClub[awayPflClubId] || 0) + 1;
-      } else if (clubId === awayPflClubId && homePflClubId) {
-        goalsByClub[homePflClubId] = (goalsByClub[homePflClubId] || 0) + 1;
-      }
-    }
-  }
-
-  const homeScore = homePflClubId !== null ? (goalsByClub[homePflClubId] ?? 0) : null;
-  const awayScore = awayPflClubId !== null ? (goalsByClub[awayPflClubId] ?? 0) : null;
-
-  // Update scores
-  if (homeScore !== null || awayScore !== null) {
-    await pool.query(
-      'UPDATE matches SET home_score = $1, away_score = $2, updated_at = NOW() WHERE id = $3',
-      [homeScore, awayScore, match.id]
-    );
-  }
-
-  // Upsert cards — type 2 is Penalty Goal, NOT a card
-  const CARD_TYPE_MAP = { 4: 'YELLOW', 3: 'RED', 5: 'RED', 7: 'RED' };
+// Shared helper: upsert card events into player_match_cards.
+// Scores are NOT calculated here — they come from homeScore/awayScore on the match object.
+async function processCards(matchRowId, events) {
   let cardCount = 0;
-
   for (const ev of events) {
     const cardType = CARD_TYPE_MAP[ev.type];
     if (!cardType || !ev.id) continue;
 
-    // Upsert player
+    // v2 API: player is in primaryPlayer field
+    const player = ev.primaryPlayer || ev.player;
     let playerRowId = null;
-    if (ev.player?.id) {
+    if (player?.id) {
       await pool.query(`
         INSERT INTO players (pfl_player_id, first_name, last_name)
         VALUES ($1, $2, $3)
         ON CONFLICT (pfl_player_id) DO NOTHING
-      `, [ev.player.id, ev.player.firstName || ev.player.first_name || null, ev.player.lastName || ev.player.last_name || null]);
-      const pr = await pool.query('SELECT id FROM players WHERE pfl_player_id = $1', [ev.player.id]);
+      `, [player.id, player.firstName || player.first_name || null, player.lastName || player.last_name || null]);
+      const pr = await pool.query('SELECT id FROM players WHERE pfl_player_id = $1', [player.id]);
       playerRowId = pr.rows[0]?.id || null;
     }
 
-    // Resolve team
     let teamRowId = null;
     if (ev.club?.id) {
       const tr = await pool.query('SELECT id FROM teams WHERE pfl_club_id = $1', [ev.club.id]);
@@ -234,11 +231,23 @@ async function syncMatchEvents(matchPflId) {
         card_type = EXCLUDED.card_type,
         minute = EXCLUDED.minute,
         extra_time = EXCLUDED.extra_time
-    `, [ev.id, match.id, playerRowId, teamRowId, cardType, ev.minute || null, ev.extraTime || ev.extra_time || null]);
+    `, [ev.id, matchRowId, playerRowId, teamRowId, cardType, ev.time || ev.minute || null, ev.extraTime || ev.extra_time || null]);
     cardCount++;
   }
-
   return cardCount;
+}
+
+// Events-scope sync: re-fetches individual match events for card data.
+// Scores are NOT updated here — use Sync Matches to refresh scores from the API.
+async function syncMatchEvents(matchPflId) {
+  const matchRes = await pool.query('SELECT id FROM matches WHERE pfl_id = $1', [matchPflId]);
+  if (!matchRes.rows[0]) return 0;
+  const matchRowId = matchRes.rows[0].id;
+
+  const events = await fetchMatchEvents(matchPflId);
+  if (!Array.isArray(events) || events.length === 0) return 0;
+
+  return processCards(matchRowId, events);
 }
 
 async function syncReferees(matchPflId) {
@@ -346,9 +355,9 @@ async function syncAll(tournamentId, seasonId, scope = 'full') {
 
   if (scope === 'full' || scope === 'events') {
     for (const pair of pairs) {
-      const scoreFilter = scope !== 'full' ? ' AND (home_score IS NULL OR away_score IS NULL)' : '';
+      // Events scope now only processes cards — scores come from homeScore/awayScore in syncMatches
       const query =
-        `SELECT pfl_id FROM matches WHERE tournament_id = (SELECT id FROM tournaments WHERE pfl_id = $1) AND start_date <= NOW()${scoreFilter}`;
+        `SELECT pfl_id FROM matches WHERE tournament_id = (SELECT id FROM tournaments WHERE pfl_id = $1) AND start_date <= NOW()`;
 
       const matchRows = await pool.query(query, [pair.tournamentId]);
       console.log(`[sync] Events for ${matchRows.rows.length} matches (tournament ${pair.tournamentId}, scope: ${scope})`);
@@ -375,7 +384,83 @@ async function syncAll(tournamentId, seasonId, scope = 'full') {
     }
   }
 
+  if (scope === 'full' || scope === 'standings') {
+    for (const pair of pairs) {
+      const standingsCount = await syncStandings(pair.tournamentId, pair.seasonId);
+      totalItems += standingsCount;
+      console.log(`[sync] Standings (tournament ${pair.tournamentId}): ${standingsCount}`);
+    }
+  }
+
   return { itemsSynced: totalItems };
 }
 
-module.exports = { syncTeams, syncMatches, syncMatchEvents, syncReferees, syncAll, discoverTournamentPairs };
+async function syncStandings(tournamentId, seasonId) {
+  // Ensure tournament row exists
+  await pool.query(`
+    INSERT INTO tournaments (pfl_id, title) VALUES ($1, $2)
+    ON CONFLICT (pfl_id) DO UPDATE SET title = EXCLUDED.title, updated_at = NOW()
+  `, [tournamentId, `Tournament ${tournamentId}`]);
+  const tournRes = await pool.query('SELECT id FROM tournaments WHERE pfl_id = $1', [tournamentId]);
+  const tournamentRowId = tournRes.rows[0]?.id;
+
+  let seasonRowId = null;
+  if (seasonId) {
+    await pool.query(`
+      INSERT INTO seasons (pfl_id, year) VALUES ($1, $2) ON CONFLICT (pfl_id) DO NOTHING
+    `, [seasonId, null]);
+    const seasRes = await pool.query('SELECT id FROM seasons WHERE pfl_id = $1', [seasonId]);
+    seasonRowId = seasRes.rows[0]?.id;
+  }
+
+  const groupIds = discoverGroupsForStandings(tournamentId, seasonId);
+  let totalCount = 0;
+
+  for (const groupId of groupIds) {
+    const query = {};
+    if (seasonId) query.seasonId = seasonId;
+    if (groupId) query.groupId = groupId;
+
+    let raw;
+    try {
+      raw = await pflFetch(`/standings/${tournamentId}`, query);
+    } catch (e) {
+      console.warn(`[sync] Standings fetch failed for t${tournamentId} group ${groupId}: ${e.message}`);
+      continue;
+    }
+
+    const entries = Array.isArray(raw) ? raw : (raw?.data || raw?.standings || []);
+
+    // Replace all rows for this tournament/season/group
+    await pool.query(
+      'DELETE FROM standings WHERE tournament_id = $1 AND season_id IS NOT DISTINCT FROM $2 AND group_pfl_id IS NOT DISTINCT FROM $3',
+      [tournamentRowId, seasonRowId, groupId || null]
+    );
+
+    let count = 0;
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      const clubId = entry.club?.id ?? entry.team?.id ?? entry.clubId ?? entry.teamId;
+      if (!clubId) continue;
+
+      const pts = entry.points ?? entry.pts ?? entry.point ?? null;
+      const gf = entry.goalsFor ?? entry.gf ?? entry.scored ?? entry.goals_for ?? null;
+      const ga = entry.goalsAgainst ?? entry.ga ?? entry.conceded ?? entry.goals_against ?? null;
+      const gp = entry.played ?? entry.gp ?? entry.matchesPlayed ?? entry.games ?? null;
+
+      await pool.query(`
+        INSERT INTO standings
+          (tournament_id, season_id, group_pfl_id, pfl_club_id, position, points, played, goals_for, goals_against)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `, [tournamentRowId, seasonRowId, groupId || null, clubId, i + 1, pts, gp, gf, ga]);
+      count++;
+    }
+
+    console.log(`[sync] Standings: t${tournamentId} group ${groupId || 'none'} → ${count} rows`);
+    totalCount += count;
+  }
+
+  return totalCount;
+}
+
+module.exports = { syncTeams, syncMatches, syncMatchEvents, syncReferees, syncAll, syncStandings, discoverTournamentPairs };

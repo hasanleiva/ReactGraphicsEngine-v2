@@ -35,6 +35,8 @@ interface TournamentSyncConfig {
   matches_enabled: boolean;
   events_interval_minutes: number;
   events_enabled: boolean;
+  standings_interval_minutes: number;
+  standings_enabled: boolean;
 }
 
 interface LocalConfig {
@@ -42,6 +44,8 @@ interface LocalConfig {
   matches_enabled: boolean;
   events_interval_minutes: number;
   events_enabled: boolean;
+  standings_interval_minutes: number;
+  standings_enabled: boolean;
 }
 
 const s = {
@@ -173,6 +177,8 @@ export default function AdminPage() {
           matches_enabled: c.matches_enabled,
           events_interval_minutes: c.events_interval_minutes,
           events_enabled: c.events_enabled,
+          standings_interval_minutes: c.standings_interval_minutes,
+          standings_enabled: c.standings_enabled,
         };
       }
       setLocalCfg(local);
@@ -242,7 +248,7 @@ export default function AdminPage() {
     setLocalCfg(prev => ({ ...prev, [id]: { ...prev[id], ...patch } }));
   };
 
-  const handleToggleField = async (cfg: TournamentSyncConfig, field: 'matches_enabled' | 'events_enabled') => {
+  const handleToggleField = async (cfg: TournamentSyncConfig, field: 'matches_enabled' | 'events_enabled' | 'standings_enabled') => {
     const next = !localCfg[cfg.id][field];
     patchLocal(cfg.id, { [field]: next });
     try {
@@ -291,7 +297,7 @@ export default function AdminPage() {
     }
   };
 
-  const handleManualSync = async (cfg: TournamentSyncConfig, scope: 'matches' | 'events') => {
+  const handleManualSync = async (cfg: TournamentSyncConfig, scope: 'matches' | 'events' | 'standings') => {
     const key = `${cfg.id}_${scope}`;
     setSyncingId(prev => ({ ...prev, [key]: true }));
     try {
@@ -488,7 +494,7 @@ export default function AdminPage() {
                     </div>
 
                     {/* Events row */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 13, color: '#374151', width: 60, flexShrink: 0 }}>Events</span>
                       <span style={{ fontSize: 13, color: '#6b7280' }}>every</span>
                       <input
@@ -508,6 +514,30 @@ export default function AdminPage() {
                         onClick={() => handleManualSync(cfg, 'events')}
                       >
                         {syncingId[eKey] ? '…' : 'Sync Events'}
+                      </button>
+                    </div>
+
+                    {/* Standings row */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 13, color: '#374151', width: 60, flexShrink: 0 }}>Standings</span>
+                      <span style={{ fontSize: 13, color: '#6b7280' }}>every</span>
+                      <input
+                        type="number" min={1}
+                        style={{ ...s.input, maxWidth: 70, padding: '5px 8px' }}
+                        value={local.standings_interval_minutes}
+                        onChange={e => patchLocal(cfg.id, { standings_interval_minutes: Number(e.target.value) })}
+                      />
+                      <span style={{ fontSize: 13, color: '#6b7280' }}>min</span>
+                      <Toggle enabled={local.standings_enabled} onChange={() => handleToggleField(cfg, 'standings_enabled')} />
+                      <span style={{ fontSize: 12, color: local.standings_enabled ? '#059669' : '#9ca3af', fontWeight: 600 }}>
+                        {local.standings_enabled ? 'ON' : 'OFF'}
+                      </span>
+                      <button
+                        style={s.smBtn(syncingId[`${cfg.id}_standings`] ? '#9ca3af' : '#f59e0b')}
+                        disabled={!!syncingId[`${cfg.id}_standings`]}
+                        onClick={() => handleManualSync(cfg, 'standings')}
+                      >
+                        {syncingId[`${cfg.id}_standings`] ? '…' : 'Sync Standings'}
                       </button>
                     </div>
 

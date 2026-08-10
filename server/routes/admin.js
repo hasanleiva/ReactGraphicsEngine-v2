@@ -101,17 +101,25 @@ router.post('/tournament-sync-configs', async (req, res) => {
       tournament_id, season_id,
       matches_interval_minutes = 60, matches_enabled = false,
       events_interval_minutes = 60, events_enabled = false,
+      standings_interval_minutes = 60, standings_enabled = false,
     } = req.body;
     if (!tournament_id) return res.status(400).json({ error: 'tournament_id is required' });
 
     const { rows } = await pool.query(`
       INSERT INTO tournament_sync_configs
-        (tournament_id, season_id, matches_interval_minutes, matches_enabled, events_interval_minutes, events_enabled, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, NOW())
+        (tournament_id, season_id,
+         matches_interval_minutes, matches_enabled,
+         events_interval_minutes, events_enabled,
+         standings_interval_minutes, standings_enabled,
+         updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
       RETURNING *
-    `, [Number(tournament_id), season_id ? Number(season_id) : null,
-        Number(matches_interval_minutes), Boolean(matches_enabled),
-        Number(events_interval_minutes), Boolean(events_enabled)]);
+    `, [
+      Number(tournament_id), season_id ? Number(season_id) : null,
+      Number(matches_interval_minutes), Boolean(matches_enabled),
+      Number(events_interval_minutes), Boolean(events_enabled),
+      Number(standings_interval_minutes), Boolean(standings_enabled),
+    ]);
 
     await rebuildTournamentSchedules();
     res.json(rows[0]);
@@ -123,20 +131,28 @@ router.post('/tournament-sync-configs', async (req, res) => {
 // PUT /api/admin/tournament-sync-configs/:id
 router.put('/tournament-sync-configs/:id', async (req, res) => {
   try {
-    const { matches_interval_minutes, matches_enabled, events_interval_minutes, events_enabled } = req.body;
+    const {
+      matches_interval_minutes, matches_enabled,
+      events_interval_minutes, events_enabled,
+      standings_interval_minutes, standings_enabled,
+    } = req.body;
     const { rows } = await pool.query(`
       UPDATE tournament_sync_configs SET
-        matches_interval_minutes = COALESCE($1, matches_interval_minutes),
-        matches_enabled          = COALESCE($2, matches_enabled),
-        events_interval_minutes  = COALESCE($3, events_interval_minutes),
-        events_enabled           = COALESCE($4, events_enabled),
+        matches_interval_minutes   = COALESCE($1, matches_interval_minutes),
+        matches_enabled            = COALESCE($2, matches_enabled),
+        events_interval_minutes    = COALESCE($3, events_interval_minutes),
+        events_enabled             = COALESCE($4, events_enabled),
+        standings_interval_minutes = COALESCE($5, standings_interval_minutes),
+        standings_enabled          = COALESCE($6, standings_enabled),
         updated_at = NOW()
-      WHERE id = $5 RETURNING *
+      WHERE id = $7 RETURNING *
     `, [
       matches_interval_minutes != null ? Number(matches_interval_minutes) : null,
       matches_enabled != null ? Boolean(matches_enabled) : null,
       events_interval_minutes != null ? Number(events_interval_minutes) : null,
       events_enabled != null ? Boolean(events_enabled) : null,
+      standings_interval_minutes != null ? Number(standings_interval_minutes) : null,
+      standings_enabled != null ? Boolean(standings_enabled) : null,
       Number(req.params.id),
     ]);
     if (!rows[0]) return res.status(404).json({ error: 'Not found' });
