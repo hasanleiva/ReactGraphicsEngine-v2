@@ -74,9 +74,9 @@ async function syncTeams() {
   return count;
 }
 
-async function syncMatches(tournamentId, seasonId) {
-  console.log(`[sync] Fetching matches for tournament ${tournamentId}`);
-  const apiMatches = await fetchAllMatches(tournamentId, seasonId);
+async function syncMatches(tournamentId, seasonId, tourId) {
+  console.log(`[sync] Fetching matches for tournament ${tournamentId}${tourId ? ` tour ${tourId}` : ''}`);
+  const apiMatches = await fetchAllMatches(tournamentId, seasonId, tourId);
   let count = 0;
 
   // Upsert tournament row
@@ -279,7 +279,7 @@ async function syncReferees(matchPflId) {
   return count;
 }
 
-async function syncAll(tournamentId, seasonId, scope = 'full') {
+async function syncAll(tournamentId, seasonId, scope = 'full', tourId) {
   const allPairs = discoverTournamentPairs();
 
   const pairs = tournamentId != null
@@ -301,39 +301,43 @@ async function syncAll(tournamentId, seasonId, scope = 'full') {
 
   let totalItems = 0;
 
-  if (scope === 'full' || scope === 'matches') {
+  if (scope === 'full') {
     const teamCount = await syncTeams();
     console.log(`[sync] Teams: ${teamCount}`);
     totalItems += teamCount;
+  }
 
+  if (scope === 'full' || scope === 'matches') {
     for (const pair of pairs) {
-      const matchCount = await syncMatches(pair.tournamentId, pair.seasonId);
+      const matchCount = await syncMatches(pair.tournamentId, pair.seasonId, tourId);
       totalItems += matchCount;
-      console.log(`[sync] Matches (tournament ${pair.tournamentId}): ${matchCount}`);
+      console.log(`[sync] Matches (tournament ${pair.tournamentId}${tourId ? ` tour ${tourId}` : ''}): ${matchCount}`);
     }
 
-    // Populate group_pfl_id for any match still missing it (bulk API doesn't return group).
-    // Covers future rounds that won't be reached by the events sync.
-    for (const pair of pairs) {
-      const { rows: nullGroupRows } = await pool.query(
-        'SELECT pfl_id FROM matches WHERE tournament_id = (SELECT id FROM tournaments WHERE pfl_id = $1) AND group_pfl_id IS NULL',
-        [pair.tournamentId]
-      );
-      if (nullGroupRows.length === 0) continue;
-      console.log(`[sync] Fetching group for ${nullGroupRows.length} ungrouped matches (tournament ${pair.tournamentId})`);
-      for (const row of nullGroupRows) {
-        try {
-          const matchDetail = await fetchMatch(row.pfl_id);
-          const groupPflId = matchDetail.group?.id || null;
-          if (groupPflId) {
-            await pool.query(
-              'UPDATE matches SET group_pfl_id = $1, updated_at = NOW() WHERE pfl_id = $2',
-              [groupPflId, row.pfl_id]
-            );
+    // Populate group_pfl_id for ungrouped matches — skip when a specific tour is selected
+    // (targeted sync; no need to backfill groups for all historical matches)
+    if (!tourId) {
+      for (const pair of pairs) {
+        const { rows: nullGroupRows } = await pool.query(
+          'SELECT pfl_id FROM matches WHERE tournament_id = (SELECT id FROM tournaments WHERE pfl_id = $1) AND group_pfl_id IS NULL',
+          [pair.tournamentId]
+        );
+        if (nullGroupRows.length === 0) continue;
+        console.log(`[sync] Fetching group for ${nullGroupRows.length} ungrouped matches (tournament ${pair.tournamentId})`);
+        for (const row of nullGroupRows) {
+          try {
+            const matchDetail = await fetchMatch(row.pfl_id);
+            const groupPflId = matchDetail.group?.id || null;
+            if (groupPflId) {
+              await pool.query(
+                'UPDATE matches SET group_pfl_id = $1, updated_at = NOW() WHERE pfl_id = $2',
+                [groupPflId, row.pfl_id]
+              );
+            }
+            await new Promise(r => setTimeout(r, 130));
+          } catch (e) {
+            console.warn(`[sync] Group fetch failed for match ${row.pfl_id}: ${e.message}`);
           }
-          await new Promise(r => setTimeout(r, 130));
-        } catch (e) {
-          console.warn(`[sync] Group fetch failed for match ${row.pfl_id}: ${e.message}`);
         }
       }
     }
@@ -341,23 +345,27 @@ async function syncAll(tournamentId, seasonId, scope = 'full') {
 
   if (scope === 'full' || scope === 'events') {
     for (const pair of pairs) {
-      // Events scope now only processes cards — scores come from homeScore/awayScore in syncMatches
-      const query =
-        `SELECT pfl_id FROM matches WHERE tournament_id = (SELECT id FROM tournaments WHERE pfl_id = $1) AND start_date <= NOW()`;
+      // Use bulk fetch with include=events instead of per-match requests
+      const apiMatches = await fetchAllMatches(pair.tournamentId, pair.seasonId, tourId);
+      console.log(`[sync] Events (bulk) for ${apiMatches.length} matches (tournament ${pair.tournamentId})`);
 
-      const matchRows = await pool.query(query, [pair.tournamentId]);
-      console.log(`[sync] Events for ${matchRows.rows.length} matches (tournament ${pair.tournamentId}, scope: ${scope})`);
-
-      for (const row of matchRows.rows) {
-        try {
-          await syncMatchEvents(row.pfl_id);
-          await new Promise(r => setTimeout(r, 500));
-        } catch (e) {
-          console.warn(`[sync] Events failed for match ${row.pfl_id}: ${e.message}`);
+      let eventCount = 0;
+      for (const m of apiMatches) {
+        if (!m.id) continue;
+        const matchRes = await pool.query('SELECT id FROM matches WHERE pfl_id = $1', [m.id]);
+        if (!matchRes.rows[0]) continue;
+        if (Array.isArray(m.events) && m.events.length > 0) {
+          await processCards(matchRes.rows[0].id, m.events);
+          eventCount++;
         }
       }
+      console.log(`[sync] Events processed for ${eventCount} matches (tournament ${pair.tournamentId})`);
 
       if (scope === 'full') {
+        const matchRows = await pool.query(
+          'SELECT pfl_id FROM matches WHERE tournament_id = (SELECT id FROM tournaments WHERE pfl_id = $1) AND start_date <= NOW()',
+          [pair.tournamentId]
+        );
         for (const row of matchRows.rows) {
           try {
             await syncReferees(row.pfl_id);

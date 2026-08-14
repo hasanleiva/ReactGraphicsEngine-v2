@@ -19,10 +19,15 @@ router.use(requireAdmin);
 // POST /api/admin/sync
 // Body: { scope: 'full'|'matches'|'events', tournamentId?, seasonId? }
 router.post('/sync', async (req, res) => {
-  const { scope = 'full', tournamentId, seasonId } = req.body;
+  const { scope = 'full', tournamentId, seasonId, tourId, tourTitle } = req.body;
   // Fire and forget — respond immediately, sync runs in background
-  triggerNow(scope, tournamentId ? Number(tournamentId) : undefined, seasonId ? Number(seasonId) : undefined)
-    .catch(err => console.error('[admin/sync]', err.message));
+  triggerNow(
+    scope,
+    tournamentId ? Number(tournamentId) : undefined,
+    seasonId ? Number(seasonId) : undefined,
+    tourId ? Number(tourId) : undefined,
+    tourTitle || undefined
+  ).catch(err => console.error('[admin/sync]', err.message));
   res.json({ success: true, message: `Sync (${scope}) triggered` });
 });
 
@@ -216,12 +221,24 @@ router.get('/tour-dropdowns', (req, res) => {
     if (!fs.existsSync(TEMPLATES_DIR)) return res.json([]);
     const result = [];
     for (const folder of fs.readdirSync(TEMPLATES_DIR).sort()) {
-      const filePath = path.join(TEMPLATES_DIR, folder, 'dropdown-tour.json');
+      const folderPath = path.join(TEMPLATES_DIR, folder);
+      const filePath = path.join(folderPath, 'dropdown-tour.json');
       if (!fs.existsSync(filePath)) continue;
+
+      // Discover tournamentId from the first .pfl.json in this folder
+      let tournamentId = null;
       try {
-        result.push({ folder, data: JSON.parse(fs.readFileSync(filePath, 'utf8')) });
+        for (const f of fs.readdirSync(folderPath)) {
+          if (!f.endsWith('.pfl.json')) continue;
+          const cfg = JSON.parse(fs.readFileSync(path.join(folderPath, f), 'utf8'));
+          if (cfg.tournamentId) { tournamentId = cfg.tournamentId; break; }
+        }
+      } catch { /* ignore */ }
+
+      try {
+        result.push({ folder, tournamentId, data: JSON.parse(fs.readFileSync(filePath, 'utf8')) });
       } catch {
-        result.push({ folder, data: null, error: 'parse error' });
+        result.push({ folder, tournamentId, data: null, error: 'parse error' });
       }
     }
     res.json(result);

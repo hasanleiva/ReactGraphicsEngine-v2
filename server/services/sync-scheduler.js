@@ -13,14 +13,15 @@ function minutesToCron(minutes) {
   return `0 */${Math.max(1, h)} * * *`;
 }
 
-async function runSync(scope = 'full', tournamentId, seasonId) {
+async function runSync(scope = 'full', tournamentId, seasonId, tourId, tourTitle) {
   if (isSyncing) {
     console.log('[scheduler] Sync already running, skipping');
     return;
   }
   isSyncing = true;
 
-  const logType = tournamentId ? `${scope}:t${tournamentId}` : scope;
+  const tourLabel = tourTitle || tourId;
+  const logType = tournamentId ? `${scope}:t${tournamentId}${tourLabel ? `:tour${tourLabel}` : ''}` : scope;
   const logRes = await pool.query(
     "INSERT INTO sync_logs (type, status) VALUES ($1, 'running') RETURNING id",
     [logType]
@@ -28,7 +29,7 @@ async function runSync(scope = 'full', tournamentId, seasonId) {
   const logId = logRes.rows[0].id;
 
   try {
-    const result = await syncAll(tournamentId, seasonId, scope);
+    const result = await syncAll(tournamentId, seasonId, scope, tourId);
     await pool.query(
       'UPDATE sync_logs SET status=$1, items_synced=$2, completed_at=NOW() WHERE id=$3',
       ['success', result.itemsSynced, logId]
@@ -124,8 +125,8 @@ async function rebuildTournamentSchedules() {
   }
 }
 
-function triggerNow(scope = 'full', tournamentId, seasonId) {
-  return runSync(scope, tournamentId, seasonId);
+function triggerNow(scope = 'full', tournamentId, seasonId, tourId, tourTitle) {
+  return runSync(scope, tournamentId, seasonId, tourId, tourTitle);
 }
 
 module.exports = { startScheduler, reschedule, triggerNow, rebuildTournamentSchedules };

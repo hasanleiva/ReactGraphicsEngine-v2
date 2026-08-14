@@ -139,6 +139,10 @@ export default function AdminPage() {
   const [adding, setAdding] = useState(false);
   const [addMsg, setAddMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  // Per-tournament selected tourId for Sync Matches
+  const [localTourId, setLocalTourId] = useState<Record<number, string>>({});
+  const [localTourTitle, setLocalTourTitle] = useState<Record<number, string>>({});
+
   // Clear events state
   const [clearTournamentId, setClearTournamentId] = useState('');
   const [clearSeasonId, setClearSeasonId] = useState('');
@@ -150,7 +154,7 @@ export default function AdminPage() {
   const [healthError, setHealthError] = useState('');
 
   // Tour dropdowns state
-  const [tourDropdowns, setTourDropdowns] = useState<{ folder: string; data: unknown[] | null; error?: string }[]>([]);
+  const [tourDropdowns, setTourDropdowns] = useState<{ folder: string; tournamentId?: number; data: unknown[] | null; error?: string }[]>([]);
   const [selectedTourFolder, setSelectedTourFolder] = useState<string | null>(null);
   const [editTourJson, setEditTourJson] = useState('');
   const [tourMsg, setTourMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -215,7 +219,7 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'sync') { loadSyncData(); loadTournamentConfigs(); }
+    if (activeTab === 'sync') { loadSyncData(); loadTournamentConfigs(); loadTourDropdowns(); }
     if (activeTab === 'configs') loadConfigs();
     if (activeTab === 'status') loadHealth();
     if (activeTab === 'tourDropdowns') loadTourDropdowns();
@@ -297,11 +301,16 @@ export default function AdminPage() {
     }
   };
 
-  const handleManualSync = async (cfg: TournamentSyncConfig, scope: 'matches' | 'events' | 'standings') => {
+  const handleManualSync = async (cfg: TournamentSyncConfig, scope: 'matches' | 'events' | 'standings', tourId?: string, tourTitle?: string) => {
     const key = `${cfg.id}_${scope}`;
     setSyncingId(prev => ({ ...prev, [key]: true }));
     try {
-      await axios.post('/api/admin/sync', { scope, tournamentId: cfg.tournament_id, seasonId: cfg.season_id });
+      await axios.post('/api/admin/sync', {
+        scope,
+        tournamentId: cfg.tournament_id,
+        seasonId: cfg.season_id,
+        ...(tourId ? { tourId, tourTitle } : {}),
+      });
       setTimeout(loadSyncData, 3000);
     } finally {
       setSyncingId(prev => ({ ...prev, [key]: false }));
@@ -380,6 +389,16 @@ export default function AdminPage() {
 
   if (loading) return null;
   if (!user || user.role !== 'admin') return null;
+
+  const tourOptionsByTournamentId = tourDropdowns.reduce<Record<number, { value: string; label: string }[]>>((acc, td) => {
+    if (td.tournamentId != null && Array.isArray(td.data)) {
+      acc[td.tournamentId] = (td.data as any[]).map(item => ({
+        value: String(item.id),
+        label: String(item.title),
+      }));
+    }
+    return acc;
+  }, {});
 
   return (
     <div style={s.page}>
@@ -484,10 +503,24 @@ export default function AdminPage() {
                       <span style={{ fontSize: 12, color: local.matches_enabled ? '#059669' : '#9ca3af', fontWeight: 600 }}>
                         {local.matches_enabled ? 'ON' : 'OFF'}
                       </span>
+                      <select
+                        style={{ ...s.input, maxWidth: 160, padding: '5px 8px', fontSize: 12 }}
+                        value={localTourId[cfg.id] || ''}
+                        onChange={e => {
+                          const selOpt = (tourOptionsByTournamentId[cfg.tournament_id] || []).find(o => o.value === e.target.value);
+                          setLocalTourId(prev => ({ ...prev, [cfg.id]: e.target.value }));
+                          setLocalTourTitle(prev => ({ ...prev, [cfg.id]: selOpt?.label || '' }));
+                        }}
+                      >
+                        <option value="">All tours</option>
+                        {(tourOptionsByTournamentId[cfg.tournament_id] || []).map(opt => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
                       <button
                         style={s.smBtn(syncingId[mKey] ? '#9ca3af' : '#3b82f6')}
                         disabled={!!syncingId[mKey]}
-                        onClick={() => handleManualSync(cfg, 'matches')}
+                        onClick={() => handleManualSync(cfg, 'matches', localTourId[cfg.id] || undefined, localTourTitle[cfg.id] || undefined)}
                       >
                         {syncingId[mKey] ? '…' : 'Sync Matches'}
                       </button>
