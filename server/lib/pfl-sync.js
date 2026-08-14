@@ -75,15 +75,9 @@ async function syncTeams() {
 }
 
 async function syncMatches(tournamentId, seasonId) {
-  // Read last sync timestamp for this tournament/season pair
-  const settingKey = `last_match_sync_${tournamentId}_${seasonId || 'null'}`;
-  const settingRes = await pool.query('SELECT value FROM sync_settings WHERE key = $1', [settingKey]);
-  const updatedSince = settingRes.rows[0]?.value || null;
-
-  console.log(`[sync] Fetching matches for tournament ${tournamentId}${updatedSince ? ` updated since ${updatedSince}` : ' (full)'}`);
-  const apiMatches = await fetchAllMatches(tournamentId, seasonId, updatedSince);
+  console.log(`[sync] Fetching matches for tournament ${tournamentId}`);
+  const apiMatches = await fetchAllMatches(tournamentId, seasonId);
   let count = 0;
-  let maxUpdatedAt = null;
 
   // Upsert tournament row
   await pool.query(`
@@ -180,21 +174,7 @@ async function syncMatches(tournamentId, seasonId) {
       await processCards(matchRowId, m.events);
     }
 
-    // Track the latest updatedAt from the API response
-    const matchUpdatedAt = m.updatedAt || m.updated_at;
-    if (matchUpdatedAt && (!maxUpdatedAt || matchUpdatedAt > maxUpdatedAt)) {
-      maxUpdatedAt = matchUpdatedAt;
-    }
-
     count++;
-  }
-
-  // Persist the max updatedAt from the API response so next sync only fetches changes
-  if (maxUpdatedAt) {
-    await pool.query(`
-      INSERT INTO sync_settings (key, value, updated_at) VALUES ($1, $2, NOW())
-      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
-    `, [settingKey, maxUpdatedAt]);
   }
 
   return count;
