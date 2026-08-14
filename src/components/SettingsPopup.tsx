@@ -105,7 +105,7 @@ export const SettingsPopup: React.FC = () => {
         <Title>Settings</Title>
         {error && <ErrorText>{error}</ErrorText>}
         {success && <SuccessText>{success}</SuccessText>}
-        {user?.role === 'admin' && (
+        {(user?.role === 'admin' || user?.role === 'user') && (
           <Button
             onClick={() => { setShowSettingsPopup(false); navigate('/admin'); }}
             style={{ background: '#1e293b' }}

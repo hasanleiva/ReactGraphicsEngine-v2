@@ -160,7 +160,7 @@ export default function AdminPage() {
   const [tourMsg, setTourMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
-    if (!loading && (!user || user.role !== 'admin')) navigate('/');
+    if (!loading && (!user || (user.role !== 'admin' && user.role !== 'user'))) navigate('/');
   }, [user, loading, navigate]);
 
   const loadConfigs = useCallback(async () => {
@@ -388,7 +388,7 @@ export default function AdminPage() {
   };
 
   if (loading) return null;
-  if (!user || user.role !== 'admin') return null;
+  if (!user || (user.role !== 'admin' && user.role !== 'user')) return null;
 
   const tourOptionsByTournamentId = tourDropdowns.reduce<Record<number, { value: string; label: string }[]>>((acc, td) => {
     if (td.tournamentId != null && Array.isArray(td.data)) {

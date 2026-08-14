@@ -32,7 +32,7 @@ async function requireAdmin(req, res, next) {
   try {
     const user = await getSessionUser(req);
     if (!user) return res.status(401).json({ error: 'Not authenticated' });
-    if (user.role !== 'admin') return res.status(403).json({ error: 'Forbidden' });
+    if (user.role !== 'admin' && user.role !== 'user') return res.status(403).json({ error: 'Forbidden' });
     req.user = user;
     next();
   } catch (err) {
