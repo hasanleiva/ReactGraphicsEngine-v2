@@ -304,12 +304,23 @@ const TemplateContent: FC<{ onClose: () => void }> = ({ onClose }) => {
         >
           {!selectedPack ? (
             <>
-              {Object.keys(packs).map((packName) => (
+              {(() => {
+                const PACK_ORDER = ['UZSL', 'PRO', '1-LIGA', 'U21', 'U19'];
+                return Object.keys(packs)
+                  .sort((a, b) => {
+                    const ai = PACK_ORDER.indexOf(a);
+                    const bi = PACK_ORDER.indexOf(b);
+                    if (ai === -1 && bi === -1) return a.localeCompare(b);
+                    if (ai === -1) return 1;
+                    if (bi === -1) return -1;
+                    return ai - bi;
+                  });
+              })().map((packName) => (
                 <div
                   key={packName}
                   css={{
                     cursor: 'pointer',
-                    padding: '16px',
+                    padding: 0,
                     background: '#e0e0e0',
                     borderRadius: '8px',
                     display: 'flex',
@@ -318,6 +329,7 @@ const TemplateContent: FC<{ onClose: () => void }> = ({ onClose }) => {
                     textAlign: 'center',
                     fontWeight: 'bold',
                     minHeight: '100px',
+                    overflow: 'hidden',
                     boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
                     transition: 'transform 0.2s',
                     ':hover': {
@@ -326,7 +338,16 @@ const TemplateContent: FC<{ onClose: () => void }> = ({ onClose }) => {
                   }}
                   onClick={() => setSelectedPack(packName)}
                 >
-                  {packName} ({packs[packName].length})
+                  <img
+                    src={`/pack_logos/${packName.toLowerCase()}_logo.png`}
+                    alt={packName}
+                    style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
+                    onError={e => {
+                      (e.currentTarget as HTMLImageElement).style.display = 'none';
+                      (e.currentTarget.nextSibling as HTMLElement).style.display = 'block';
+                    }}
+                  />
+                  <span style={{ display: 'none', fontWeight: 'bold' }}>{packName} ({packs[packName].length})</span>
                 </div>
               ))}
               {templates.map((item, index) => {
