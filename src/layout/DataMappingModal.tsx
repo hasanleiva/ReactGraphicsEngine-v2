@@ -250,6 +250,15 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
       if (gf !== '' || ga !== '') setTextLayer(`${n}-GF`, `${gf}-${ga}`);
       if (gp !== '') setTextLayer(`${n}-O'YIN`, String(gp));
     });
+
+    const maxPlayed = standings.reduce((max, entry) => {
+      const gp = entry.played ?? entry.gp ?? entry.matchesPlayed ?? entry.games ?? 0;
+      return Number(gp) > max ? Number(gp) : max;
+    }, 0);
+    if (maxPlayed > 0) {
+      setTextLayer('TUR', `${maxPlayed}-tur`);
+      setTextLayer('Tur', `${maxPlayed}-tur`);
+    }
   };
 
   const applyFulltime = async () => {

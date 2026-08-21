@@ -103,7 +103,7 @@ router.get('/tournament-sync-configs', async (req, res) => {
 router.post('/tournament-sync-configs', async (req, res) => {
   try {
     const {
-      tournament_id, season_id,
+      tournament_id, season_id, name,
       matches_interval_minutes = 60, matches_enabled = false,
       events_interval_minutes = 60, events_enabled = false,
       standings_interval_minutes = 60, standings_enabled = false,
@@ -112,15 +112,15 @@ router.post('/tournament-sync-configs', async (req, res) => {
 
     const { rows } = await pool.query(`
       INSERT INTO tournament_sync_configs
-        (tournament_id, season_id,
+        (tournament_id, season_id, name,
          matches_interval_minutes, matches_enabled,
          events_interval_minutes, events_enabled,
          standings_interval_minutes, standings_enabled,
          updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
       RETURNING *
     `, [
-      Number(tournament_id), season_id ? Number(season_id) : null,
+      Number(tournament_id), season_id ? Number(season_id) : null, name || null,
       Number(matches_interval_minutes), Boolean(matches_enabled),
       Number(events_interval_minutes), Boolean(events_enabled),
       Number(standings_interval_minutes), Boolean(standings_enabled),
@@ -137,21 +137,24 @@ router.post('/tournament-sync-configs', async (req, res) => {
 router.put('/tournament-sync-configs/:id', async (req, res) => {
   try {
     const {
+      name,
       matches_interval_minutes, matches_enabled,
       events_interval_minutes, events_enabled,
       standings_interval_minutes, standings_enabled,
     } = req.body;
     const { rows } = await pool.query(`
       UPDATE tournament_sync_configs SET
-        matches_interval_minutes   = COALESCE($1, matches_interval_minutes),
-        matches_enabled            = COALESCE($2, matches_enabled),
-        events_interval_minutes    = COALESCE($3, events_interval_minutes),
-        events_enabled             = COALESCE($4, events_enabled),
-        standings_interval_minutes = COALESCE($5, standings_interval_minutes),
-        standings_enabled          = COALESCE($6, standings_enabled),
+        name                       = COALESCE($1, name),
+        matches_interval_minutes   = COALESCE($2, matches_interval_minutes),
+        matches_enabled            = COALESCE($3, matches_enabled),
+        events_interval_minutes    = COALESCE($4, events_interval_minutes),
+        events_enabled             = COALESCE($5, events_enabled),
+        standings_interval_minutes = COALESCE($6, standings_interval_minutes),
+        standings_enabled          = COALESCE($7, standings_enabled),
         updated_at = NOW()
-      WHERE id = $7 RETURNING *
+      WHERE id = $8 RETURNING *
     `, [
+      name !== undefined ? (name || null) : null,
       matches_interval_minutes != null ? Number(matches_interval_minutes) : null,
       matches_enabled != null ? Boolean(matches_enabled) : null,
       events_interval_minutes != null ? Number(events_interval_minutes) : null,

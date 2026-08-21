@@ -31,6 +31,7 @@ interface TournamentSyncConfig {
   id: number;
   tournament_id: number;
   season_id: number | null;
+  name?: string | null;
   matches_interval_minutes: number;
   matches_enabled: boolean;
   events_interval_minutes: number;
@@ -139,6 +140,9 @@ export default function AdminPage() {
   const [adding, setAdding] = useState(false);
   const [addMsg, setAddMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
+  // Per-tournament custom names
+  const [localNames, setLocalNames] = useState<Record<number, string>>({});
+
   // Per-tournament selected tourId for Sync Matches
   const [localTourId, setLocalTourId] = useState<Record<number, string>>({});
   const [localTourTitle, setLocalTourTitle] = useState<Record<number, string>>({});
@@ -175,6 +179,7 @@ export default function AdminPage() {
       const res = await axios.get<TournamentSyncConfig[]>('/api/admin/tournament-sync-configs');
       setTConfigs(res.data);
       const local: Record<number, LocalConfig> = {};
+      const names: Record<number, string> = {};
       for (const c of res.data) {
         local[c.id] = {
           matches_interval_minutes: c.matches_interval_minutes,
@@ -184,8 +189,10 @@ export default function AdminPage() {
           standings_interval_minutes: c.standings_interval_minutes,
           standings_enabled: c.standings_enabled,
         };
+        names[c.id] = c.name || '';
       }
       setLocalCfg(local);
+      setLocalNames(names);
     } catch { /* ignore */ }
   }, []);
 
@@ -477,10 +484,23 @@ export default function AdminPage() {
                 const msg = cfgMsgs[cfg.id];
                 return (
                   <div key={cfg.id} style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 16, marginBottom: 12 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                      <span style={{ fontWeight: 700, fontSize: 15, color: '#1e293b' }}>
-                        Tournament {cfg.tournament_id}{cfg.season_id ? ` / Season ${cfg.season_id}` : ''}
-                      </span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <input
+                          type="text"
+                          placeholder="Enter name..."
+                          value={localNames[cfg.id] ?? ''}
+                          onChange={e => setLocalNames(prev => ({ ...prev, [cfg.id]: e.target.value }))}
+                          onBlur={async e => {
+                            const val = e.target.value.trim();
+                            try { await axios.put(`/api/admin/tournament-sync-configs/${cfg.id}`, { name: val || null }); } catch { /* ignore */ }
+                          }}
+                          style={{ fontWeight: 700, fontSize: 15, color: '#1e293b', border: 'none', borderBottom: '1px dashed #d1d5db', outline: 'none', background: 'transparent', padding: '0 0 2px 0', width: 220 }}
+                        />
+                        <span style={{ fontSize: 11, color: '#9ca3af' }}>
+                          Tournament {cfg.tournament_id}{cfg.season_id ? ` / Season ${cfg.season_id}` : ''}
+                        </span>
+                      </div>
                       <button
                         onClick={() => handleDeleteConfig(cfg.id)}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 18, lineHeight: 1 }}

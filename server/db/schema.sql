@@ -152,3 +152,4 @@ ALTER TABLE matches ADD COLUMN IF NOT EXISTS group_pfl_id INTEGER;
 ALTER TABLE tournament_sync_configs
   ADD COLUMN IF NOT EXISTS standings_interval_minutes INTEGER NOT NULL DEFAULT 60,
   ADD COLUMN IF NOT EXISTS standings_enabled BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE tournament_sync_configs ADD COLUMN IF NOT EXISTS name TEXT;
