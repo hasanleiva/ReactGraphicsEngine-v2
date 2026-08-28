@@ -314,34 +314,30 @@ async function syncAll(tournamentId, seasonId, scope = 'full', tourId) {
       console.log(`[sync] Matches (tournament ${pair.tournamentId}${tourId ? ` tour ${tourId}` : ''}): ${matchCount}`);
     }
 
-    // Populate group_pfl_id for ungrouped matches.
-    // When tourId is set, only backfill the matches from that tour (not all historical).
-    for (const pair of pairs) {
-      const queryParams = [pair.tournamentId];
-      let tourFilter = '';
-      if (tourId) {
-        queryParams.push(Number(tourId));
-        tourFilter = ` AND stage_pfl_id = $${queryParams.length}`;
-      }
-      const { rows: nullGroupRows } = await pool.query(
-        `SELECT pfl_id FROM matches WHERE tournament_id = (SELECT id FROM tournaments WHERE pfl_id = $1) AND group_pfl_id IS NULL${tourFilter}`,
-        queryParams
-      );
-      if (nullGroupRows.length === 0) continue;
-      console.log(`[sync] Fetching group for ${nullGroupRows.length} ungrouped matches (tournament ${pair.tournamentId}${tourId ? ` tour ${tourId}` : ''})`);
-      for (const row of nullGroupRows) {
-        try {
-          const matchDetail = await fetchMatch(row.pfl_id);
-          const groupPflId = matchDetail.group?.id || null;
-          if (groupPflId) {
-            await pool.query(
-              'UPDATE matches SET group_pfl_id = $1, updated_at = NOW() WHERE pfl_id = $2',
-              [groupPflId, row.pfl_id]
-            );
+    // Populate group_pfl_id for ungrouped matches — skip when a specific tour is selected
+    // (targeted sync; no need to backfill groups for all historical matches)
+    if (!tourId) {
+      for (const pair of pairs) {
+        const { rows: nullGroupRows } = await pool.query(
+          'SELECT pfl_id FROM matches WHERE tournament_id = (SELECT id FROM tournaments WHERE pfl_id = $1) AND group_pfl_id IS NULL',
+          [pair.tournamentId]
+        );
+        if (nullGroupRows.length === 0) continue;
+        console.log(`[sync] Fetching group for ${nullGroupRows.length} ungrouped matches (tournament ${pair.tournamentId})`);
+        for (const row of nullGroupRows) {
+          try {
+            const matchDetail = await fetchMatch(row.pfl_id);
+            const groupPflId = matchDetail.group?.id || null;
+            if (groupPflId) {
+              await pool.query(
+                'UPDATE matches SET group_pfl_id = $1, updated_at = NOW() WHERE pfl_id = $2',
+                [groupPflId, row.pfl_id]
+              );
+            }
+            await new Promise(r => setTimeout(r, 130));
+          } catch (e) {
+            console.warn(`[sync] Group fetch failed for match ${row.pfl_id}: ${e.message}`);
           }
-          await new Promise(r => setTimeout(r, 130));
-        } catch (e) {
-          console.warn(`[sync] Group fetch failed for match ${row.pfl_id}: ${e.message}`);
         }
       }
     }
