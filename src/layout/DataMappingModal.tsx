@@ -193,7 +193,7 @@ const DataMappingModal: FC<Props> = ({ templateId, onClose }) => {
     });
     const matches: any[] = (res.data?.data || []).slice(0, matchCount);
 
-    const UZ_MONTHS = ['yanvar','fevral','mart','aprel','may','iyun','iyul','avgust','sentabr','oktabr','noyabr','dekabr'];
+    const UZ_MONTHS = ['yanvar','fevral','mart','aprel','may','iyun','iyul','avgust','sentyabr','oktyabr','noyabr','dekabr'];
 
     actions.history.new();
     matches.forEach((match: any, i: number) => {
